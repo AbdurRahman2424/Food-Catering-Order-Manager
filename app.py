@@ -204,22 +204,97 @@ def order_detail(id):
 @app.route('/orders/<int:id>/status', methods=['POST'])
 @login_required
 def update_status(id):
-    next_status = request.form.get('next_status')
-    if not next_status:
-        return redirect(url_for('order_detail', id=id))
+    new_status = request.form.get('status')
+    if not new_status:
+        return redirect(request.referrer or url_for('orders'))
         
     db = get_db()
     try:
         with db.cursor() as cursor:
+            # Get current status
+            cursor.execute("SELECT status FROM orders WHERE id = %s", (id,))
+            order = cursor.fetchone()
+            if not order:
+                flash('Order not found.', 'danger')
+                return redirect(url_for('orders'))
+            
+            current_status = order['status']
+            status_pipeline = ['received', 'logged', 'in_preparation', 'ready', 'delivered']
+            
+            if new_status not in status_pipeline:
+                flash('Invalid status.', 'danger')
+                return redirect(request.referrer or url_for('orders'))
+            
+            current_index = status_pipeline.index(current_status)
+            new_index = status_pipeline.index(new_status)
+            
+            if new_index <= current_index:
+                flash('Cannot move status backwards.', 'danger')
+                return redirect(request.referrer or url_for('orders'))
+
             sql = "UPDATE orders SET status = %s WHERE id = %s"
-            cursor.execute(sql, (next_status, id))
+            cursor.execute(sql, (new_status, id))
             db.commit()
-            flash(f'Order status updated to {next_status}.', 'success')
+            flash(f'Order status updated to {new_status.replace("_", " ")}.', 'success')
     except Exception as e:
         db.rollback()
         flash(f'Error updating status: {str(e)}', 'danger')
         
-    return redirect(url_for('order_detail', id=id))
+    return redirect(request.referrer or url_for('orders'))
+
+@app.route('/kitchen')
+@login_required
+def kitchen():
+    db = get_db()
+    with db.cursor() as cursor:
+        sql = """
+            SELECT o.*, c.name AS customer_name, 
+                   GROUP_CONCAT(CONCAT(p.name, '||', oi.quantity, '||', p.unit) SEPARATOR ';;') as items_info
+            FROM orders o
+            JOIN customers c ON o.customer_id = c.id
+            JOIN order_items oi ON o.id = oi.order_id
+            JOIN products p ON oi.product_id = p.id
+            WHERE o.status IN ('logged', 'in_preparation')
+            GROUP BY o.id
+            ORDER BY o.delivery_date ASC
+        """
+        cursor.execute(sql)
+        orders = cursor.fetchall()
+        
+        # Process items_info
+        for order in orders:
+            items = []
+            if order['items_info']:
+                for item_str in order['items_info'].split(';;'):
+                    parts = item_str.split('||')
+                    items.append({'product_name': parts[0], 'quantity': parts[1], 'unit': parts[2]})
+            order['order_items'] = items
+
+        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status = 'logged'")
+        logged_count = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status = 'in_preparation'")
+        prep_count = cursor.fetchone()['count']
+        
+    return render_template('kitchen.html', orders=orders, logged_count=logged_count, prep_count=prep_count, today=date.today(), now=datetime.now())
+
+@app.route('/delivery')
+@login_required
+def delivery():
+    db = get_db()
+    with db.cursor() as cursor:
+        sql = """
+            SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address,
+                   (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+            FROM orders o
+            JOIN customers c ON o.customer_id = c.id
+            WHERE o.status = 'ready'
+            ORDER BY o.delivery_date ASC
+        """
+        cursor.execute(sql)
+        orders = cursor.fetchall()
+        
+    return render_template('delivery.html', orders=orders)
 
 # --- Customer Quick Add (for modal) ---
 @app.route('/customers/new', methods=['POST'])

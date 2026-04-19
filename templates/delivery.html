@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block title %}Delivery View{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-truck me-2"></i>Delivery View</h2>
+        <span class="badge bg-info text-white fs-6">Orders Ready: {{ orders|length }}</span>
+    </div>
+
+    <div class="row">
+        {% for order in orders %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-white fw-bold d-flex justify-content-between">
+                    <span>Order #{{ order.id }}</span>
+                    <span class="text-muted small">{{ order.delivery_date.strftime('%b %d') }}</span>
+                </div>
+                <div class="card-body">
+                    <h5 class="card-title mb-1">{{ order.customer_name }}</h5>
+                    <p class="text-muted small mb-3"><i class="bi bi-telephone me-1"></i>{{ order.customer_phone }}</p>
+                    
+                    <div class="mb-3">
+                        <label class="text-muted small d-block">Delivery Address</label>
+                        <div class="bg-light p-2 border rounded small" style="min-height: 50px;">
+                            {{ order.customer_address }}
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="badge bg-light text-dark border"><i class="bi bi-box-seam me-1"></i>{{ order.item_count }} items</span>
+                    </div>
+                </div>
+                <div class="card-footer bg-white p-0">
+                    <form id="form-deliver-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
+                        <input type="hidden" name="status" value="delivered">
+                        <button type="button" class="btn btn-success w-100 rounded-0 py-2 fw-bold"
+                                data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                data-bs-message="Confirm delivery for Order #{{ order.id }} to {{ order.customer_name }}?"
+                                data-bs-form="form-deliver-{{ order.id }}">
+                            <i class="bi bi-check-circle me-1"></i>Confirm Delivered
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12 text-center py-5">
+            <div class="mb-3">
+                <i class="bi bi-truck text-muted" style="font-size: 5rem;"></i>
+            </div>
+            <h3>No orders ready for delivery</h3>
+            <p class="text-muted">Wait for the kitchen to mark orders as ready.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

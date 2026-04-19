@@ -86,9 +86,55 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="{{ url_for('order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-eye me-1"></i>View
-                        </a>
+                        <div class="d-flex gap-2">
+                            <a href="{{ url_for('order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                            
+                            {% if order.status == 'received' %}
+                                <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
+                                    <input type="hidden" name="status" value="logged">
+                                    <button type="button" class="btn btn-sm btn-secondary"
+                                            data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                            data-bs-message="Log Order #{{ order.id }}?"
+                                            data-bs-form="form-status-{{ order.id }}">
+                                        Log Order
+                                    </button>
+                                </form>
+                            {% elif order.status == 'logged' %}
+                                <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
+                                    <input type="hidden" name="status" value="in_preparation">
+                                    <button type="button" class="btn btn-sm btn-warning"
+                                            data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                            data-bs-message="Start preparation for Order #{{ order.id }}?"
+                                            data-bs-form="form-status-{{ order.id }}">
+                                        Start Prep
+                                    </button>
+                                </form>
+                            {% elif order.status == 'in_preparation' %}
+                                <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
+                                    <input type="hidden" name="status" value="ready">
+                                    <button type="button" class="btn btn-sm btn-info text-white"
+                                            data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                            data-bs-message="Mark Order #{{ order.id }} as Ready?"
+                                            data-bs-form="form-status-{{ order.id }}">
+                                        Mark Ready
+                                    </button>
+                                </form>
+                            {% elif order.status == 'ready' %}
+                                <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
+                                    <input type="hidden" name="status" value="delivered">
+                                    <button type="button" class="btn btn-sm btn-success"
+                                            data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                            data-bs-message="Mark Order #{{ order.id }} as Delivered?"
+                                            data-bs-form="form-status-{{ order.id }}">
+                                        Mark Delivered
+                                    </button>
+                                </form>
+                            {% elif order.status == 'delivered' %}
+                                <span class="badge bg-success py-2"><i class="bi bi-check-circle me-1"></i>Done</span>
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% else %}
