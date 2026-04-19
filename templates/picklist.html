@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Production Pick List{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 d-print-none">
+    <div>
+        <h2><i class="bi bi-list-check me-2"></i>Production Pick List</h2>
+        <p class="text-muted mb-0">Aggregate items for all orders currently <strong>In Preparation</strong></p>
+    </div>
+    <button onclick="window.print()" class="btn btn-outline-secondary">
+        <i class="bi bi-printer me-1"></i>Print List
+    </button>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span class="fw-bold">Generated: {{ today.strftime('%b %d, %Y') }}</span>
+        <span class="badge bg-primary d-print-none">FreshPlate Co. Internal</span>
+    </div>
+    <div class="card-body">
+        <div class="list-group list-group-flush">
+            {% for item in items %}
+            <div class="list-group-item py-4">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h4 class="mb-1 fw-bold">{{ item.product_name }}</h4>
+                        <div class="text-muted small">Needed for orders: {{ item.order_ids }}</div>
+                    </div>
+                    <div class="col-md-6 text-md-end mt-2 mt-md-0">
+                        <span class="fs-2 fw-bold">{{ item.total_qty }}</span>
+                        <span class="fs-4 text-muted ms-1">{{ item.unit }}</span>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-clipboard-x fs-1 text-muted"></i>
+                <p class="mt-3">No items are currently in the preparation stage.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="mt-4 text-center text-muted d-none d-print-block">
+    <small>End of Production Pick List - FreshPlate Co.</small>
+</div>
+{% endblock %}

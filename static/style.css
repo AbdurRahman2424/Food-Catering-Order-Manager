@@ -1,0 +1,41 @@
+/* Minimal custom overrides for FreshPlate Co. */
+body {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.card {
+    border: none;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1.5rem;
+}
+
+.table-danger {
+    background-color: #f8d7da !important;
+}
+
+/* Print optimizations */
+@media print {
+    .d-print-none {
+        display: none !important;
+    }
+    body {
+        background-color: white;
+    }
+    .card {
+        box-shadow: none;
+        border: 1px solid #dee2e6;
+    }
+}
+
+/* Custom status colors if needed beyond Bootstrap defaults */
+.status-received { background-color: #6c757d; color: white; }
+.status-logged { background-color: #0d6efd; color: white; }
+.status-in_preparation { background-color: #ffc107; color: black; }
+.status-ready { background-color: #17a2b8; color: white; }
+.status-delivered { background-color: #198754; color: white; }
