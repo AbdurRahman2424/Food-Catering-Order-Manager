@@ -89,7 +89,7 @@
                         </thead>
                         <tbody>
                             {% if prefill_data %}
-                                {% for item in prefill_data.items %}
+                                {% for item in prefill_data.order_lines %}
                                 <tr class="item-row">
                                     <td>
                                         <select name="product_id[]" class="form-select product-select" required>

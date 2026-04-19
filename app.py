@@ -225,7 +225,7 @@ def new_order():
                 items = cursor.fetchall()
                 prefill_data = {
                     "customer_id": order_info['customer_id'],
-                    "items": items,
+                    "order_lines": items,
                     "reorder_id": reorder_id
                 }
 
