@@ -584,7 +584,11 @@ def picklist():
 @app.route('/customers/new', methods=['POST'])
 @login_required
 def new_customer():
-    name, phone, email, address = request.form.get('name'), request.form.get('phone'), request.form.get('email'), request.form.get('address')
+    name = request.form.get('name')
+    phone = request.form.get('phone')
+    email = request.form.get('email')
+    address = request.form.get('address')
+    
     db = get_db()
     try:
         with db.cursor() as cursor:
@@ -592,10 +596,21 @@ def new_customer():
             cursor.execute(sql, (name, phone, email, address))
             customer_id = cursor.lastrowid
             db.commit()
-            return {"status": "success", "id": customer_id, "name": name}
+            
+            socketio.emit('customer_created', {'name': name})
+            
+            # Check if AJAX request (from new_order.html)
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json':
+                return {"status": "success", "id": customer_id, "name": name}
+            
+            flash(f'Customer {name} added successfully!', 'success')
+            return redirect(url_for('customers'))
     except Exception as e:
         db.rollback()
-        return {"status": "error", "message": str(e)}, 400
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json':
+            return {"status": "error", "message": str(e)}, 400
+        flash(f'Error adding customer: {str(e)}', 'danger')
+        return redirect(url_for('customers'))
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
