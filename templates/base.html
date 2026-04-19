@@ -13,6 +13,13 @@
     {% block head %}{% endblock %}
 </head>
 <body>
+    <!-- Overdue Warning Banner -->
+    <div id="overdue-banner" class="alert alert-danger mb-0 rounded-0 d-none text-center py-2">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <span id="overdue-banner-text">Warning: 0 order(s) are overdue.</span>
+        <a href="{{ url_for('orders', status='overdue') }}" class="alert-link ms-2">View them</a>
+    </div>
+
     <!-- FreshPlate Co. Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 d-print-none">
         <div class="container">
@@ -26,22 +33,28 @@
                 <ul class="navbar-nav me-auto">
                     {% if session.user_id %}
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'orders' %}active{% endif %}" href="{{ url_for('orders') }}">Orders</a>
+                        <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'kitchen' %}active{% endif %}" href="{{ url_for('kitchen') }}"><i class="bi bi-fire me-1"></i>Kitchen</a>
+                        <a class="nav-link {% if request.endpoint == 'orders' %}active{% endif %}" href="{{ url_for('orders') }}">
+                            Orders <span id="badge-overdue" class="badge rounded-pill bg-danger d-none">0</span>
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'delivery' %}active{% endif %}" href="{{ url_for('delivery') }}"><i class="bi bi-truck me-1"></i>Delivery</a>
+                        <a class="nav-link {% if request.endpoint == 'kitchen' %}active{% endif %}" href="{{ url_for('kitchen') }}">
+                            <i class="bi bi-fire me-1"></i>Kitchen <span id="badge-kitchen" class="badge rounded-pill bg-warning text-dark d-none">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'delivery' %}active{% endif %}" href="{{ url_for('delivery') }}">
+                            <i class="bi bi-truck me-1"></i>Delivery <span id="badge-delivery" class="badge rounded-pill bg-success d-none">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'customers' %}active{% endif %}" href="{{ url_for('customers') }}">Customers</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'products' %}active{% endif %}" href="{{ url_for('products') }}">Products</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}" href="{{ url_for('summary') }}">Summary</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'picklist' %}active{% endif %}" href="{{ url_for('picklist') }}">Pick List</a>
                     </li>
                     {% endif %}
                 </ul>
@@ -68,32 +81,21 @@
     </nav>
 
     <div class="container mb-5">
-        <!-- Flash Messages -->
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
         {% block content %}{% endblock %}
     </div>
 
-    <!-- Shared Confirmation Modal -->
-    <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999" id="toastPlacement"></div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal fade" id="confirmModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="confirmModalLabel">Confirm Action</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title">Confirm Action</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body" id="confirmModalBody">
-                    Are you sure you want to proceed?
-                </div>
+                <div class="modal-body" id="confirmModalBody">Are you sure?</div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="confirmModalSubmit">Confirm</button>
@@ -102,27 +104,162 @@
         </div>
     </div>
 
-    <!-- Bootstrap 5.3 JS Bundle -->
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+    
     <script>
+        // Global showToast function
+        function showToast(message, type = 'blue') {
+            const container = document.getElementById('toastPlacement');
+            const iconMap = {
+                'blue': 'bi-plus-circle',
+                'orange': 'bi-arrow-right-circle',
+                'green': 'bi-check-circle',
+                'red': 'bi-exclamation-circle'
+            };
+            const borderMap = {
+                'blue': 'border-primary',
+                'orange': 'border-warning',
+                'green': 'border-success',
+                'red': 'border-danger'
+            };
+            
+            const toastId = 'toast-' + Date.now();
+            const toastHTML = `
+                <div id="${toastId}" class="toast border-start border-4 ${borderMap[type] || 'border-primary'}" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="toast-header">
+                        <i class="bi ${iconMap[type] || 'bi-info-circle'} me-2 text-primary"></i>
+                        <strong class="me-auto">FreshPlate Update</strong>
+                        <small class="text-muted">just now</small>
+                        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                    <div class="toast-body">${message}</div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', toastHTML);
+            const toastEl = document.getElementById(toastId);
+            const bsToast = new bootstrap.Toast(toastEl, { delay: 5000 });
+            bsToast.show();
+            
+            // Limit to 5 toasts
+            const toasts = container.querySelectorAll('.toast');
+            if (toasts.length > 5) toasts[0].remove();
+        }
+
+        // Navbar counts
+        async function updateNavCounts() {
+            try {
+                const response = await fetch('/api/nav-counts');
+                const counts = await response.json();
+                
+                const badges = {
+                    'kitchen': document.getElementById('badge-kitchen'),
+                    'delivery': document.getElementById('badge-delivery'),
+                    'overdue': document.getElementById('badge-overdue')
+                };
+                
+                for (let key in counts) {
+                    if (badges[key]) {
+                        badges[key].textContent = counts[key];
+                        if (counts[key] > 0) badges[key].classList.remove('d-none');
+                        else badges[key].classList.add('d-none');
+                    }
+                }
+            } catch (e) { console.error('Error fetching nav counts', e); }
+        }
+
+        // Overdue check
+        let knownOverdue = new Set();
+        async function checkOverdue() {
+            try {
+                const response = await fetch('/api/overdue-check');
+                const orders = await response.json();
+                const banner = document.getElementById('overdue-banner');
+                const text = document.getElementById('overdue-banner-text');
+                
+                if (orders.length > 0) {
+                    text.textContent = `Warning: ${orders.length} order(s) are overdue.`;
+                    banner.classList.remove('d-none');
+                    
+                    orders.forEach(o => {
+                        if (!knownOverdue.has(o.id)) {
+                            showToast(`Order #${o.id} for ${o.customer_name} is now OVERDUE!`, 'red');
+                            knownOverdue.add(o.id);
+                        }
+                    });
+                } else {
+                    banner.classList.add('d-none');
+                }
+            } catch (e) { console.error('Error checking overdue', e); }
+        }
+
+        // Socket.IO init
+        const socket = io();
+        socket.on('connect', () => { console.log('Socket connected'); });
+
+        socket.on('order_created', (data) => {
+            showToast(data.message, 'blue');
+            updateNavCounts();
+            if (['orders', 'dashboard'].includes("{{ request.endpoint }}")) {
+                setTimeout(() => location.reload(), 1500);
+            }
+        });
+
+        socket.on('order_updated', (data) => {
+            let type = 'orange';
+            if (data.new_status === 'delivered') type = 'green';
+            showToast(data.message, type);
+            updateNavCounts();
+            if (['orders', 'kitchen', 'delivery', 'dashboard'].includes("{{ request.endpoint }}")) {
+                setTimeout(() => location.reload(), 1500);
+            }
+        });
+
+        socket.on('order_comment', (data) => {
+            if ("{{ request.endpoint }}" === 'order_detail' && data.order_id == "{{ order.id if order else 0 }}") {
+                const list = document.getElementById('comment-list');
+                const newComment = `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between">
+                            <strong>${data.staff_name}</strong>
+                            <small class="text-muted">${data.time}</small>
+                        </div>
+                        <div class="mt-1">${data.comment}</div>
+                    </div>
+                `;
+                list.insertAdjacentHTML('beforeend', newComment);
+                showToast(`New comment on Order #${data.order_id}`, 'blue');
+            }
+        });
+
+        // Initialize
         document.addEventListener('DOMContentLoaded', function() {
+            updateNavCounts();
+            checkOverdue();
+            setInterval(checkOverdue, 300000); // 5 mins
+
+            // Handle Flash as Toasts
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        let tType = 'blue';
+                        if ('{{ category }}' === 'danger') tType = 'red';
+                        if ('{{ category }}' === 'warning') tType = 'orange';
+                        if ('{{ category }}' === 'success') tType = 'green';
+                        showToast('{{ message }}', tType);
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            // Shared Modal JS
             const confirmModal = document.getElementById('confirmModal');
             if (confirmModal) {
                 confirmModal.addEventListener('show.bs.modal', function(event) {
-                    const button = event.relatedTarget;
-                    const message = button.getAttribute('data-bs-message');
-                    const formId = button.getAttribute('data-bs-form');
-                    
-                    const modalBody = confirmModal.querySelector('#confirmModalBody');
-                    const submitBtn = confirmModal.querySelector('#confirmModalSubmit');
-                    
-                    if (message) modalBody.textContent = message;
-                    
-                    submitBtn.onclick = function() {
-                        if (formId) {
-                            document.getElementById(formId).submit();
-                        }
-                    };
+                    const btn = event.relatedTarget;
+                    document.getElementById('confirmModalBody').textContent = btn.getAttribute('data-bs-message') || 'Are you sure?';
+                    document.getElementById('confirmModalSubmit').onclick = () => document.getElementById(btn.getAttribute('data-bs-form')).submit();
                 });
             }
         });

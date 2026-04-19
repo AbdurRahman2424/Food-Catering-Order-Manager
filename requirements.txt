@@ -1,3 +1,5 @@
-flask
-pymysql
-werkzeug
+Flask
+PyMySQL
+Werkzeug
+flask-socketio
+eventlet

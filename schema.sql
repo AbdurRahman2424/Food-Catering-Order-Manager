@@ -56,6 +56,17 @@ CREATE TABLE IF NOT EXISTS order_items (
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
+-- Internal Comments table
+CREATE TABLE IF NOT EXISTS order_comments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    comment TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (staff_id) REFERENCES staff(id)
+);
+
 -- Seed Data
 -- Initial Admin Staff (password: admin123)
 -- Hash generated using werkzeug.security.generate_password_hash('admin123')

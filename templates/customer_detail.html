@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+
+{% block title %}Customer - {{ customer.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+        <a href="{{ url_for('customers') }}" class="text-decoration-none text-muted me-2"><i class="bi bi-arrow-left"></i></a>
+        {{ customer.name }}
+    </h2>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white fw-bold py-3">Customer Information</div>
+            <div class="card-body">
+                <div class="text-center mb-4">
+                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                        <i class="bi bi-person-fill fs-1"></i>
+                    </div>
+                    <h4>{{ customer.name }}</h4>
+                    <span class="badge bg-light text-dark border">Member Since: {{ customer.created_at.strftime('%b %Y') }}</span>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <label class="text-muted small d-block">Phone Number</label>
+                    <div class="fw-bold"><i class="bi bi-telephone me-2"></i>{{ customer.phone }}</div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-muted small d-block">Email Address</label>
+                    <div class="fw-bold"><i class="bi bi-envelope me-2"></i>{{ customer.email or 'N/A' }}</div>
+                </div>
+                <div>
+                    <label class="text-muted small d-block">Delivery Address</label>
+                    <div class="fw-bold"><i class="bi bi-geo-alt me-2"></i>{{ customer.address or 'N/A' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                <span>Order History</span>
+                <span class="badge bg-secondary">{{ history|length }} Total Orders</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Date</th>
+                            <th>Items</th>
+                            <th>Total</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in history %}
+                        <tr>
+                            <td>#{{ order.id }}</td>
+                            <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
+                            <td class="small">{{ order.items_summary }}</td>
+                            <td class="fw-bold">${{ "%.2f"|format(order.total_price or 0) }}</td>
+                            <td>
+                                <span class="badge bg-{% if order.status == 'delivered' %}success{% elif order.status == 'ready' %}info{% elif order.status == 'in_preparation' %}warning text-dark{% else %}primary{% endif %}">
+                                    {{ order.status|replace('_', ' ')|capitalize }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex gap-2">
+                                    <a href="{{ url_for('order_detail', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="View Detail">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('new_order', reorder=order.id) }}" class="btn btn-sm btn-outline-primary" title="Re-order">
+                                        <i class="bi bi-arrow-repeat"></i> Re-order
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
