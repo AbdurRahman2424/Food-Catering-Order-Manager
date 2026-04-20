@@ -87,8 +87,11 @@
                     </td>
                     <td>
                         <div class="d-flex gap-2">
-                            <a href="{{ url_for('order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary">
-                                <i class="bi bi-eye"></i> View
+                            <a href="{{ url_for('order_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="View Details">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <a href="{{ url_for('order_invoice', id=order.id) }}" class="btn btn-sm btn-outline-secondary" title="View Invoice">
+                                <i class="bi bi-receipt"></i>
                             </a>
                             
                             {% if order.status == 'received' %}

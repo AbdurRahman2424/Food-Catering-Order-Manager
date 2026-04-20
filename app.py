@@ -1,10 +1,12 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, g, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, g, jsonify, make_response
 import pymysql.cursors
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
 from config import Config
 from flask_socketio import SocketIO, emit
+from xhtml2pdf import pisa
+import io
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -318,6 +320,128 @@ def order_detail(id):
         
     return render_template('order_detail.html', order=order, items=items, 
                            total_price=total_price, comments=comments)
+
+@app.route('/orders/<int:id>/invoice')
+@login_required
+def order_invoice(id):
+    db = get_db()
+    with db.cursor() as cursor:
+        # 1. Check if invoice exists, if not create it
+        cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
+        invoice = cursor.fetchone()
+        
+        if not invoice:
+            year = datetime.now().year
+            invoice_number = f"INV-{year}-{id:05d}"
+            try:
+                cursor.execute(
+                    "INSERT INTO invoices (order_id, invoice_number, generated_by) VALUES (%s, %s, %s)",
+                    (id, invoice_number, session['user_id'])
+                )
+                db.commit()
+                cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
+                invoice = cursor.fetchone()
+            except Exception as e:
+                db.rollback()
+                flash(f"Error generating invoice record: {str(e)}", "danger")
+                return redirect(url_for('order_detail', id=id))
+
+        # 2. Get all data for template
+        sql_order = """
+            SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, 
+                   c.email AS customer_email, c.address AS customer_address,
+                   s.name AS staff_name
+            FROM orders o
+            JOIN customers c ON o.customer_id = c.id
+            JOIN staff s ON o.staff_id = s.id
+            WHERE o.id = %s
+        """
+        cursor.execute(sql_order, (id,))
+        order = cursor.fetchone()
+        
+        if not order:
+            flash('Order not found.', 'danger')
+            return redirect(url_for('orders'))
+            
+        sql_items = """
+            SELECT oi.*, p.name AS product_name, p.unit
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = %s
+        """
+        cursor.execute(sql_items, (id,))
+        items = cursor.fetchall()
+        total_price = sum(item['quantity'] * item['unit_price'] for item in items)
+        
+    return render_template('invoice.html', 
+                           order=order, 
+                           items=items, 
+                           total_price=total_price, 
+                           invoice_number=invoice['invoice_number'],
+                           generated_at=invoice['generated_at'],
+                           pdf_mode=False)
+
+@app.route('/orders/<int:id>/invoice/pdf')
+@login_required
+def order_invoice_pdf(id):
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
+        invoice = cursor.fetchone()
+        
+        if not invoice:
+            # Create if doesn't exist (e.g. direct link)
+            year = datetime.now().year
+            invoice_number = f"INV-{year}-{id:05d}"
+            cursor.execute(
+                "INSERT INTO invoices (order_id, invoice_number, generated_by) VALUES (%s, %s, %s)",
+                (id, invoice_number, session['user_id'])
+            )
+            db.commit()
+            cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
+            invoice = cursor.fetchone()
+
+        sql_order = """
+            SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, 
+                   c.email AS customer_email, c.address AS customer_address,
+                   s.name AS staff_name
+            FROM orders o
+            JOIN customers c ON o.customer_id = c.id
+            JOIN staff s ON o.staff_id = s.id
+            WHERE o.id = %s
+        """
+        cursor.execute(sql_order, (id,))
+        order = cursor.fetchone()
+            
+        sql_items = """
+            SELECT oi.*, p.name AS product_name, p.unit
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = %s
+        """
+        cursor.execute(sql_items, (id,))
+        items = cursor.fetchall()
+        total_price = sum(item['quantity'] * item['unit_price'] for item in items)
+
+    html_string = render_template('invoice.html', 
+                                 order=order, 
+                                 items=items, 
+                                 total_price=total_price, 
+                                 invoice_number=invoice['invoice_number'],
+                                 generated_at=invoice['generated_at'],
+                                 pdf_mode=True)
+    
+    pdf_buffer = io.BytesIO()
+    pisa_status = pisa.CreatePDF(io.StringIO(html_string), dest=pdf_buffer)
+    if pisa_status.err:
+        flash('Error generating PDF. Please try again.', 'danger')
+        return redirect(url_for('order_detail', id=id))
+    
+    pdf_buffer.seek(0)
+    response = make_response(pdf_buffer.read())
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = f'attachment; filename=Invoice-{invoice["invoice_number"]}.pdf'
+    return response
 
 @app.route('/orders/<int:id>/status', methods=['POST'])
 @login_required

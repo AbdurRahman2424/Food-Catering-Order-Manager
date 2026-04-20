@@ -9,7 +9,13 @@
         Order #{{ order.id }}
     </h2>
     <div class="d-print-none">
-        <button onclick="window.print()" class="btn btn-outline-secondary me-2">
+        <a href="{{ url_for('order_invoice', id=order.id) }}" class="btn btn-outline-secondary me-2">
+            <i class="bi bi-receipt me-1"></i>View Invoice
+        </a>
+        <a href="{{ url_for('order_invoice_pdf', id=order.id) }}" class="btn btn-outline-dark me-2">
+            <i class="bi bi-file-pdf me-1"></i>Download PDF
+        </a>
+        <button onclick="window.print()" class="btn btn-outline-secondary">
             <i class="bi bi-printer me-1"></i>Print
         </button>
     </div>

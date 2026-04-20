@@ -40,6 +40,23 @@ A full-stack internal tool for managing catering orders, preparation stages, and
    ```
    The app will be available at `http://127.0.0.1:5000`.
 
+### PDF Generation (WeasyPrint)
+WeasyPrint requires system libraries for rendering PDFs:
+
+**Windows:**
+1. Download and install the GTK3 runtime from: [GTK for Windows Runtime Environment](https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases)
+2. Add the GTK `bin` folder to your system PATH.
+3. Restart your terminal/IDE.
+
+**Linux (Ubuntu/Debian):**
+`sudo apt install libpango-1.0-0 libpangoft2-1.0-0`
+
+**Mac:**
+`brew install pango`
+
+**PythonAnywhere:**
+Works out of the box, no extra steps needed.
+
 ## Default Credentials
 - **Email:** `admin@catering.com`
 - **Password:** `admin123`
