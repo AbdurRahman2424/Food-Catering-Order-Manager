@@ -5,11 +5,13 @@ from functools import wraps
 from datetime import datetime, date, timedelta
 from config import Config
 from flask_socketio import SocketIO, emit
+from flask_cors import CORS
 from xhtml2pdf import pisa
 import io
 
 app = Flask(__name__)
 app.config.from_object(Config)
+CORS(app, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
 # Database connection helper
@@ -34,78 +36,104 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            if request.path.startswith('/api/') or request.accept_mimetypes.accept_json:
+                return jsonify({"error": "Unauthorized", "message": "Please log in to access this resource."}), 401
             flash('Please log in to access this page.', 'warning')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
-# --- Dashboard & Activity Routes ---
+# --- Auth Routes ---
 
-@app.route('/')
-@login_required
-def index():
-    return redirect(url_for('dashboard'))
-
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    return render_template('dashboard.html')
-
-@app.route('/api/dashboard-data')
-def api_dashboard_data():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json() if request.is_json else request.form
+    email = data.get('email')
+    password = data.get('password')
     
+    db = get_db()
+    with db.cursor() as cursor:
+        sql = "SELECT * FROM staff WHERE email = %s"
+        cursor.execute(sql, (email,))
+        user = cursor.fetchone()
+        
+        if user and (check_password_hash(user['password_hash'], password) or password == 'admin123'):
+            session['user_id'] = user['id']
+            session['user_name'] = user['name']
+            session['user_role'] = user['role']
+            
+            return jsonify({
+                "status": "success",
+                "token": "session_based",
+                "staff": {
+                    "id": user['id'],
+                    "name": user['name'],
+                    "role": user['role'],
+                    "email": user['email']
+                }
+            })
+        else:
+            return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({"status": "success", "message": "Logged out successfully"})
+
+# --- Dashboard & Stats ---
+
+@app.route('/api/dashboard')
+@login_required
+def api_dashboard():
     today_val = date.today()
     db = get_db()
     with db.cursor() as cursor:
         # Metrics
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE DATE(created_at) = %s", (today_val,))
-        today_total = cursor.fetchone()['count']
+        cursor.execute("SELECT COUNT(*) as count FROM orders")
+        total_orders = cursor.fetchone()['count']
         
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status IN ('logged', 'in_preparation')")
-        in_kitchen = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status = 'ready'")
-        ready = cursor.fetchone()['count']
+        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status IN ('received', 'logged', 'in_preparation')")
+        pending_count = cursor.fetchone()['count']
         
         cursor.execute("SELECT COUNT(*) as count FROM orders WHERE delivery_date = %s AND status = 'delivered'", (today_val,))
         delivered_today = cursor.fetchone()['count']
         
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE delivery_date < %s AND status != 'delivered'", (today_val,))
-        overdue = cursor.fetchone()['count']
+        # Revenue today
+        cursor.execute("""
+            SELECT SUM(oi.quantity * oi.unit_price) as revenue 
+            FROM order_items oi 
+            JOIN orders o ON oi.order_id = o.id 
+            WHERE o.delivery_date = %s AND o.status = 'delivered'
+        """, (today_val,))
+        revenue_today = cursor.fetchone()['revenue'] or 0
         
         # Distribution
-        cursor.execute("SELECT status, COUNT(*) as count FROM orders WHERE delivery_date = %s GROUP BY status", (today_val,))
+        cursor.execute("SELECT status, COUNT(*) as count FROM orders GROUP BY status")
         dist_rows = cursor.fetchall()
         status_distribution = {row['status']: row['count'] for row in dist_rows}
         
-        # Recent Activity (Last 10 status updates/creations would ideally be in a logs table, 
-        # but for this schema we'll use orders sorted by last updated if we had that. 
-        # Since we don't, we'll return last 10 orders created)
+        # Recent Activity
         cursor.execute("""
-            SELECT o.id, c.name as customer, o.status, DATE_FORMAT(o.created_at, '%%H:%%i') as time 
+            SELECT o.id, c.name as customer, o.status, DATE_FORMAT(o.created_at, '%%Y-%%m-%%d %%H:%%i') as time 
             FROM orders o 
             JOIN customers c ON o.customer_id = c.id 
             ORDER BY o.created_at DESC LIMIT 10
         """)
         activity = cursor.fetchall()
-        recent_activity = [{"time": a['time'], "order_id": a['id'], "customer": a['customer'], "change": f"was created as {a['status']}"} for a in activity]
+        recent_activity = [{"time": a['time'], "order_id": a['id'], "customer": a['customer'], "message": f"Order #{a['id']} for {a['customer']} is {a['status']}"} for a in activity]
 
     return jsonify({
-        "today_total": today_total,
-        "in_kitchen": in_kitchen,
-        "ready": ready,
+        "total_orders": total_orders,
+        "pending_count": pending_count,
         "delivered_today": delivered_today,
-        "overdue": overdue,
-        "status_distribution": status_distribution,
-        "recent_activity": recent_activity
+        "revenue_today": float(revenue_today),
+        "recent_activity": recent_activity,
+        "status_distribution": status_distribution
     })
 
 @app.route('/api/nav-counts')
+@login_required
 def api_nav_counts():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
     db = get_db()
     today_val = date.today()
     with db.cursor() as cursor:
@@ -115,60 +143,13 @@ def api_nav_counts():
         delivery = cursor.fetchone()['count']
         cursor.execute("SELECT COUNT(*) as count FROM orders WHERE delivery_date < %s AND status != 'delivered'", (today_val,))
         overdue = cursor.fetchone()['count']
-    return jsonify({"kitchen": kitchen, "delivery": delivery, "overdue": overdue})
-
-@app.route('/api/overdue-check')
-def api_overdue_check():
-    if 'user_id' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-    db = get_db()
-    today_val = date.today()
-    with db.cursor() as cursor:
-        cursor.execute("""
-            SELECT o.id, c.name as customer_name, o.delivery_date 
-            FROM orders o 
-            JOIN customers c ON o.customer_id = c.id 
-            WHERE o.delivery_date < %s AND o.status != 'delivered'
-        """, (today_val,))
-        overdue_orders = cursor.fetchall()
-    return jsonify(overdue_orders)
-
-# --- Routes ---
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
-        
-        db = get_db()
-        with db.cursor() as cursor:
-            sql = "SELECT * FROM staff WHERE email = %s"
-            cursor.execute(sql, (email,))
-            user = cursor.fetchone()
-            
-            if user and (check_password_hash(user['password_hash'], password) or password == 'admin123'):
-                session['user_id'] = user['id']
-                session['user_name'] = user['name']
-                session['user_role'] = user['role']
-                flash(f'Welcome back, {user["name"]}!', 'success')
-                return redirect(url_for('dashboard'))
-            else:
-                flash('Invalid email or password.', 'danger')
-                
-    return render_template('login.html')
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    flash('You have been logged out.', 'info')
-    return redirect(url_for('login'))
+    return jsonify({"kitchen_count": kitchen, "delivery_count": delivery, "overdue_count": overdue})
 
 # --- Order Routes ---
 
-@app.route('/orders')
+@app.route('/api/orders')
 @login_required
-def orders():
+def api_orders():
     status_filter = request.args.get('status')
     search_query = request.args.get('search')
     date_filter = request.args.get('date')
@@ -192,7 +173,7 @@ def orders():
             
         if search_query:
             conditions.append("c.name LIKE %s")
-            params.append(f"%{search_query}%")
+            params.append(f"%%{search_query}%%")
         if date_filter:
             conditions.append("o.delivery_date = %s")
             params.append(date_filter)
@@ -204,81 +185,52 @@ def orders():
         cursor.execute(sql, params)
         order_list = cursor.fetchall()
         
-    return render_template('orders.html', orders=order_list, today=date.today())
+    return jsonify(order_list)
 
-@app.route('/orders/new', methods=['GET', 'POST'])
+@app.route('/api/orders', methods=['POST'])
 @login_required
-def new_order():
-    db = get_db()
-    reorder_id = request.args.get('reorder')
-    prefill_data = None
+def create_order():
+    data = request.get_json()
+    customer_id = data.get('customer_id')
+    delivery_date = data.get('delivery_date')
+    notes = data.get('notes')
+    items = data.get('items', []) # Array of {product_id, quantity}
     
-    if reorder_id:
+    db = get_db()
+    try:
         with db.cursor() as cursor:
-            cursor.execute("SELECT customer_id FROM orders WHERE id = %s", (reorder_id,))
-            order_info = cursor.fetchone()
-            if order_info:
-                cursor.execute("""
-                    SELECT oi.product_id, oi.quantity, p.name 
-                    FROM order_items oi 
-                    JOIN products p ON oi.product_id = p.id 
-                    WHERE oi.order_id = %s
-                """, (reorder_id,))
-                items = cursor.fetchall()
-                prefill_data = {
-                    "customer_id": order_info['customer_id'],
-                    "order_lines": items,
-                    "reorder_id": reorder_id
-                }
+            sql_order = "INSERT INTO orders (customer_id, staff_id, delivery_date, notes) VALUES (%s, %s, %s, %s)"
+            cursor.execute(sql_order, (customer_id, session['user_id'], delivery_date, notes))
+            order_id = cursor.lastrowid
+            
+            for item in items:
+                pid = item.get('product_id')
+                qty = item.get('quantity')
+                if pid and qty:
+                    cursor.execute("SELECT price_per_unit FROM products WHERE id = %s", (pid,))
+                    product = cursor.fetchone()
+                    if product:
+                        sql_item = "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (%s, %s, %s, %s)"
+                        cursor.execute(sql_item, (order_id, pid, qty, product['price_per_unit']))
+            
+            cursor.execute("SELECT name FROM customers WHERE id = %s", (customer_id,))
+            cust_name = cursor.fetchone()['name']
+            db.commit()
+            
+            socketio.emit('new_order_created', {
+                'order_id': order_id,
+                'customer_name': cust_name,
+                'message': f'New Order #{order_id} created for {cust_name}'
+            })
+            
+            return jsonify({"status": "success", "order_id": order_id, "message": "Order created successfully"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
 
-    if request.method == 'POST':
-        customer_id = request.form.get('customer_id')
-        delivery_date = request.form.get('delivery_date')
-        notes = request.form.get('notes')
-        product_ids = request.form.getlist('product_id[]')
-        quantities = request.form.getlist('quantity[]')
-        
-        try:
-            with db.cursor() as cursor:
-                sql_order = "INSERT INTO orders (customer_id, staff_id, delivery_date, notes) VALUES (%s, %s, %s, %s)"
-                cursor.execute(sql_order, (customer_id, session['user_id'], delivery_date, notes))
-                order_id = cursor.lastrowid
-                
-                for pid, qty in zip(product_ids, quantities):
-                    if pid and qty:
-                        cursor.execute("SELECT price_per_unit FROM products WHERE id = %s", (pid,))
-                        product = cursor.fetchone()
-                        if product:
-                            sql_item = "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (%s, %s, %s, %s)"
-                            cursor.execute(sql_item, (order_id, pid, qty, product['price_per_unit']))
-                
-                cursor.execute("SELECT name FROM customers WHERE id = %s", (customer_id,))
-                cust_name = cursor.fetchone()['name']
-                db.commit()
-                
-                socketio.emit('order_created', {
-                    'order_id': order_id,
-                    'customer_name': cust_name,
-                    'message': f'New Order #{order_id} created for {cust_name}'
-                })
-                
-                flash('Order created successfully!', 'success')
-                return redirect(url_for('orders'))
-        except Exception as e:
-            db.rollback()
-            flash(f'Error creating order: {str(e)}', 'danger')
-
-    with db.cursor() as cursor:
-        cursor.execute("SELECT * FROM customers ORDER BY name")
-        customers = cursor.fetchall()
-        cursor.execute("SELECT * FROM products WHERE is_active = 1 ORDER BY name")
-        products = cursor.fetchall()
-        
-    return render_template('new_order.html', customers=customers, products=products, prefill_data=prefill_data)
-
-@app.route('/orders/<int:id>')
+@app.route('/api/orders/<int:id>')
 @login_required
-def order_detail(id):
+def api_order_detail(id):
     db = get_db()
     with db.cursor() as cursor:
         sql_order = """
@@ -294,8 +246,7 @@ def order_detail(id):
         order = cursor.fetchone()
         
         if not order:
-            flash('Order not found.', 'danger')
-            return redirect(url_for('orders'))
+            return jsonify({"error": "Order not found"}), 404
             
         sql_items = """
             SELECT oi.*, p.name AS product_name, p.unit
@@ -318,15 +269,77 @@ def order_detail(id):
         
         total_price = sum(item['quantity'] * item['unit_price'] for item in items)
         
-    return render_template('order_detail.html', order=order, items=items, 
-                           total_price=total_price, comments=comments)
+    return jsonify({
+        "order": order,
+        "items": items,
+        "comments": comments,
+        "total_price": float(total_price)
+    })
 
-@app.route('/orders/<int:id>/invoice')
+@app.route('/api/orders/<int:id>/status', methods=['POST'])
 @login_required
-def order_invoice(id):
+def api_update_status(id):
+    data = request.get_json() if request.is_json else request.form
+    new_status = data.get('status')
+    if not new_status:
+        return jsonify({"error": "Status is required"}), 400
+        
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("SELECT o.status, c.name as customer_name FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.id = %s", (id,))
+            order = cursor.fetchone()
+            if not order:
+                return jsonify({"error": "Order not found"}), 404
+            
+            cust_name = order['customer_name']
+            sql = "UPDATE orders SET status = %s WHERE id = %s"
+            cursor.execute(sql, (new_status, id))
+            db.commit()
+            
+            socketio.emit('order_status_changed', {
+                'order_id': id,
+                'new_status': new_status,
+                'customer_name': cust_name,
+                'message': f'Order #{id} for {cust_name} moved to {new_status}'
+            })
+            
+            return jsonify({"status": "success", "message": f"Order status updated to {new_status}"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/orders/<int:id>/comments', methods=['POST'])
+@login_required
+def api_add_comment(id):
+    data = request.get_json() if request.is_json else request.form
+    comment_text = data.get('comment')
+    if not comment_text:
+        return jsonify({"error": "Comment text is required"}), 400
+    
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            sql = "INSERT INTO order_comments (order_id, staff_id, comment) VALUES (%%s, %%s, %%s)"
+            cursor.execute(sql, (id, session['user_id'], comment_text))
+            db.commit()
+            
+            socketio.emit('new_comment', {
+                'order_id': id,
+                'staff_name': session['user_name'],
+                'comment': comment_text,
+                'time': datetime.now().strftime('%%Y-%%m-%%d %%H:%%i')
+            })
+            return jsonify({"status": "success", "message": "Comment added"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/orders/<int:id>/invoice')
+@login_required
+def api_order_invoice(id):
     db = get_db()
     with db.cursor() as cursor:
-        # 1. Check if invoice exists, if not create it
         cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
         invoice = cursor.fetchone()
         
@@ -343,10 +356,8 @@ def order_invoice(id):
                 invoice = cursor.fetchone()
             except Exception as e:
                 db.rollback()
-                flash(f"Error generating invoice record: {str(e)}", "danger")
-                return redirect(url_for('order_detail', id=id))
+                return jsonify({"error": f"Error generating invoice record: {str(e)}"}), 500
 
-        # 2. Get all data for template
         sql_order = """
             SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, 
                    c.email AS customer_email, c.address AS customer_address,
@@ -360,8 +371,7 @@ def order_invoice(id):
         order = cursor.fetchone()
         
         if not order:
-            flash('Order not found.', 'danger')
-            return redirect(url_for('orders'))
+            return jsonify({"error": "Order not found"}), 404
             
         sql_items = """
             SELECT oi.*, p.name AS product_name, p.unit
@@ -373,24 +383,23 @@ def order_invoice(id):
         items = cursor.fetchall()
         total_price = sum(item['quantity'] * item['unit_price'] for item in items)
         
-    return render_template('invoice.html', 
-                           order=order, 
-                           items=items, 
-                           total_price=total_price, 
-                           invoice_number=invoice['invoice_number'],
-                           generated_at=invoice['generated_at'],
-                           pdf_mode=False)
+    return jsonify({
+        "order": order,
+        "items": items,
+        "total_price": float(total_price),
+        "invoice_number": invoice['invoice_number'],
+        "generated_at": invoice['generated_at']
+    })
 
-@app.route('/orders/<int:id>/invoice/pdf')
+@app.route('/api/orders/<int:id>/invoice/pdf')
 @login_required
-def order_invoice_pdf(id):
+def api_order_invoice_pdf(id):
     db = get_db()
     with db.cursor() as cursor:
         cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
         invoice = cursor.fetchone()
         
         if not invoice:
-            # Create if doesn't exist (e.g. direct link)
             year = datetime.now().year
             invoice_number = f"INV-{year}-{id:05d}"
             cursor.execute(
@@ -434,8 +443,7 @@ def order_invoice_pdf(id):
     pdf_buffer = io.BytesIO()
     pisa_status = pisa.CreatePDF(io.StringIO(html_string), dest=pdf_buffer)
     if pisa_status.err:
-        flash('Error generating PDF. Please try again.', 'danger')
-        return redirect(url_for('order_detail', id=id))
+        return jsonify({"error": "Error generating PDF"}), 500
     
     pdf_buffer.seek(0)
     response = make_response(pdf_buffer.read())
@@ -443,86 +451,11 @@ def order_invoice_pdf(id):
     response.headers['Content-Disposition'] = f'attachment; filename=Invoice-{invoice["invoice_number"]}.pdf'
     return response
 
-@app.route('/orders/<int:id>/status', methods=['POST'])
+# --- Kitchen & Delivery ---
+
+@app.route('/api/kitchen')
 @login_required
-def update_status(id):
-    new_status = request.form.get('status')
-    if not new_status:
-        return redirect(request.referrer or url_for('orders'))
-        
-    db = get_db()
-    try:
-        with db.cursor() as cursor:
-            cursor.execute("SELECT o.status, c.name as customer_name FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.id = %s", (id,))
-            order = cursor.fetchone()
-            if not order:
-                flash('Order not found.', 'danger')
-                return redirect(url_for('orders'))
-            
-            current_status = order['status']
-            cust_name = order['customer_name']
-            status_pipeline = ['received', 'logged', 'in_preparation', 'ready', 'delivered']
-            
-            if new_status not in status_pipeline:
-                flash('Invalid status.', 'danger')
-                return redirect(request.referrer or url_for('orders'))
-            
-            current_index = status_pipeline.index(current_status)
-            new_index = status_pipeline.index(new_status)
-            
-            if new_index <= current_index:
-                flash('Cannot move status backwards.', 'danger')
-                return redirect(request.referrer or url_for('orders'))
-
-            sql = "UPDATE orders SET status = %s WHERE id = %s"
-            cursor.execute(sql, (new_status, id))
-            db.commit()
-            
-            socketio.emit('order_updated', {
-                'order_id': id,
-                'new_status': new_status,
-                'customer_name': cust_name,
-                'message': f'Order #{id} for {cust_name} moved to {new_status.replace("_", " ")}'
-            })
-            
-            flash(f'Order status updated to {new_status.replace("_", " ")}.', 'success')
-    except Exception as e:
-        db.rollback()
-        flash(f'Error updating status: {str(e)}', 'danger')
-        
-    return redirect(request.referrer or url_for('orders'))
-
-@app.route('/orders/<int:id>/comment', methods=['POST'])
-@login_required
-def add_comment(id):
-    comment_text = request.form.get('comment')
-    if not comment_text:
-        return redirect(url_for('order_detail', id=id))
-    
-    db = get_db()
-    try:
-        with db.cursor() as cursor:
-            sql = "INSERT INTO order_comments (order_id, staff_id, comment) VALUES (%s, %s, %s)"
-            cursor.execute(sql, (id, session['user_id'], comment_text))
-            db.commit()
-            
-            socketio.emit('order_comment', {
-                'order_id': id,
-                'staff_name': session['user_name'],
-                'comment': comment_text,
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M')
-            })
-    except Exception as e:
-        db.rollback()
-        flash(f'Error adding comment: {str(e)}', 'danger')
-        
-    return redirect(url_for('order_detail', id=id))
-
-# --- Kitchen & Delivery View ---
-
-@app.route('/kitchen')
-@login_required
-def kitchen():
+def api_kitchen():
     db = get_db()
     with db.cursor() as cursor:
         sql = """
@@ -543,19 +476,15 @@ def kitchen():
             if order['items_info']:
                 for item_str in order['items_info'].split(';;'):
                     parts = item_str.split('||')
-                    items.append({'product_name': parts[0], 'quantity': parts[1], 'unit': parts[2]})
+                    if len(parts) == 3:
+                        items.append({'product_name': parts[0], 'quantity': float(parts[1]), 'unit': parts[2]})
             order['order_items'] = items
-
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status = 'logged'")
-        logged_count = cursor.fetchone()['count']
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status = 'in_preparation'")
-        prep_count = cursor.fetchone()['count']
         
-    return render_template('kitchen.html', orders=orders, logged_count=logged_count, prep_count=prep_count, today=date.today(), now=datetime.now())
+    return jsonify(orders)
 
-@app.route('/delivery')
+@app.route('/api/delivery')
 @login_required
-def delivery():
+def api_delivery():
     db = get_db()
     with db.cursor() as cursor:
         sql = """
@@ -568,13 +497,63 @@ def delivery():
         """
         cursor.execute(sql)
         orders = cursor.fetchall()
-    return render_template('delivery.html', orders=orders)
+    return jsonify(orders)
 
-# --- Customer Routes ---
+# --- Products & Customers ---
 
-@app.route('/customers')
+@app.route('/api/products')
 @login_required
-def customers():
+def api_products():
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute("SELECT * FROM products ORDER BY name")
+        product_list = cursor.fetchall()
+    return jsonify(product_list)
+
+@app.route('/api/products', methods=['POST'])
+@login_required
+def api_create_product():
+    data = request.get_json()
+    name = data.get('name')
+    description = data.get('description')
+    unit = data.get('unit')
+    price = data.get('price_per_unit')
+    
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            sql = "INSERT INTO products (name, description, unit, price_per_unit) VALUES (%s, %s, %s, %s)"
+            cursor.execute(sql, (name, description, unit, price))
+            db.commit()
+            return jsonify({"status": "success", "message": "Product added successfully"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/products/<int:id>', methods=['PUT'])
+@login_required
+def api_update_product(id):
+    data = request.get_json()
+    name = data.get('name')
+    description = data.get('description')
+    unit = data.get('unit')
+    price = data.get('price_per_unit')
+    is_active = data.get('is_active', 1)
+    
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            sql = "UPDATE products SET name=%%s, description=%%s, unit=%%s, price_per_unit=%%s, is_active=%%s WHERE id=%%s"
+            cursor.execute(sql, (name, description, unit, price, is_active, id))
+            db.commit()
+            return jsonify({"status": "success", "message": "Product updated successfully"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/customers')
+@login_required
+def api_customers():
     db = get_db()
     with db.cursor() as cursor:
         sql = """
@@ -586,18 +565,17 @@ def customers():
         """
         cursor.execute(sql)
         cust_list = cursor.fetchall()
-    return render_template('customers.html', customers=cust_list)
+    return jsonify(cust_list)
 
-@app.route('/customers/<int:id>')
+@app.route('/api/customers/<int:id>')
 @login_required
-def customer_detail(id):
+def api_customer_detail(id):
     db = get_db()
     with db.cursor() as cursor:
         cursor.execute("SELECT * FROM customers WHERE id = %s", (id,))
         customer = cursor.fetchone()
         if not customer:
-            flash('Customer not found.', 'danger')
-            return redirect(url_for('customers'))
+            return jsonify({"error": "Customer not found"}), 404
         
         cursor.execute("""
             SELECT o.*, 
@@ -611,107 +589,19 @@ def customer_detail(id):
         """, (id,))
         history = cursor.fetchall()
         
-    return render_template('customer_detail.html', customer=customer, history=history)
+    return jsonify({
+        "customer": customer,
+        "history": history
+    })
 
-# --- Existing Product, Summary, Picklist ---
-
-@app.route('/products')
+@app.route('/api/customers', methods=['POST'])
 @login_required
-def products():
-    db = get_db()
-    with db.cursor() as cursor:
-        cursor.execute("SELECT * FROM products ORDER BY name")
-        product_list = cursor.fetchall()
-    return render_template('products.html', products=product_list)
-
-@app.route('/products/new', methods=['GET', 'POST'])
-@login_required
-def new_product():
-    if request.method == 'POST':
-        name = request.form.get('name')
-        description = request.form.get('description')
-        unit = request.form.get('unit')
-        price = request.form.get('price_per_unit')
-        db = get_db()
-        try:
-            with db.cursor() as cursor:
-                sql = "INSERT INTO products (name, description, unit, price_per_unit) VALUES (%s, %s, %s, %s)"
-                cursor.execute(sql, (name, description, unit, price))
-                db.commit()
-                flash('Product added successfully!', 'success')
-                return redirect(url_for('products'))
-        except Exception as e:
-            db.rollback()
-            flash(f'Error adding product: {str(e)}', 'danger')
-    return render_template('product_form.html', product=None)
-
-@app.route('/products/<int:id>/edit', methods=['GET', 'POST'])
-@login_required
-def edit_product(id):
-    db = get_db()
-    if request.method == 'POST':
-        name = request.form.get('name')
-        description = request.form.get('description')
-        unit = request.form.get('unit')
-        price = request.form.get('price_per_unit')
-        is_active = 1 if request.form.get('is_active') else 0
-        try:
-            with db.cursor() as cursor:
-                sql = "UPDATE products SET name=%s, description=%s, unit=%s, price_per_unit=%s, is_active=%s WHERE id=%s"
-                cursor.execute(sql, (name, description, unit, price, is_active, id))
-                db.commit()
-                flash('Product updated successfully!', 'success')
-                return redirect(url_for('products'))
-        except Exception as e:
-            db.rollback()
-            flash(f'Error updating product: {str(e)}', 'danger')
-    with db.cursor() as cursor:
-        cursor.execute("SELECT * FROM products WHERE id = %s", (id,))
-        product = cursor.fetchone()
-    return render_template('product_form.html', product=product)
-
-@app.route('/summary')
-@login_required
-def summary():
-    today_val = date.today()
-    db = get_db()
-    with db.cursor() as cursor:
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE delivery_date = %s", (today_val,))
-        due_today = cursor.fetchone()['count']
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE delivery_date < %s AND status != 'delivered'", (today_val,))
-        overdue = cursor.fetchone()['count']
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE status = 'in_preparation'")
-        in_prep = cursor.fetchone()['count']
-        cursor.execute("SELECT COUNT(*) as count FROM orders WHERE delivery_date = %s AND status = 'delivered'", (today_val,))
-        delivered_today = cursor.fetchone()['count']
-        cursor.execute("""
-            SELECT o.*, c.name as customer_name FROM orders o 
-            JOIN customers c ON o.customer_id = c.id WHERE o.delivery_date = %s ORDER BY o.status
-        """, (today_val,))
-        today_orders = cursor.fetchall()
-    return render_template('summary.html', due_today=due_today, overdue=overdue, in_prep=in_prep, delivered_today=delivered_today, today_orders=today_orders)
-
-@app.route('/picklist')
-@login_required
-def picklist():
-    db = get_db()
-    with db.cursor() as cursor:
-        sql = """
-            SELECT p.name AS product_name, p.unit, SUM(oi.quantity) AS total_qty, GROUP_CONCAT(CONCAT('#', o.id) SEPARATOR ', ') AS order_ids
-            FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id
-            WHERE o.status = 'in_preparation' GROUP BY p.id ORDER BY p.name
-        """
-        cursor.execute(sql)
-        items = cursor.fetchall()
-    return render_template('picklist.html', items=items, today=date.today())
-
-@app.route('/customers/new', methods=['POST'])
-@login_required
-def new_customer():
-    name = request.form.get('name')
-    phone = request.form.get('phone')
-    email = request.form.get('email')
-    address = request.form.get('address')
+def api_new_customer():
+    data = request.get_json()
+    name = data.get('name')
+    phone = data.get('phone')
+    email = data.get('email')
+    address = data.get('address')
     
     db = get_db()
     try:
@@ -720,21 +610,33 @@ def new_customer():
             cursor.execute(sql, (name, phone, email, address))
             customer_id = cursor.lastrowid
             db.commit()
-            
-            socketio.emit('customer_created', {'name': name})
-            
-            # Check if AJAX request (from new_order.html)
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json':
-                return {"status": "success", "id": customer_id, "name": name}
-            
-            flash(f'Customer {name} added successfully!', 'success')
-            return redirect(url_for('customers'))
+            return jsonify({"status": "success", "id": customer_id, "name": name})
     except Exception as e:
         db.rollback()
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json':
-            return {"status": "error", "message": str(e)}, 400
-        flash(f'Error adding customer: {str(e)}', 'danger')
-        return redirect(url_for('customers'))
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/reorder/<int:order_id>', methods=['POST'])
+@login_required
+def api_reorder_prefill(order_id):
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute("SELECT customer_id, notes FROM orders WHERE id = %s", (order_id,))
+        order = cursor.fetchone()
+        if not order:
+            return jsonify({"error": "Order not found"}), 404
+            
+        cursor.execute("""
+            SELECT product_id, quantity 
+            FROM order_items 
+            WHERE order_id = %s
+        """, (order_id,))
+        items = cursor.fetchall()
+        
+        return jsonify({
+            "customer_id": order['customer_id'],
+            "notes": order['notes'],
+            "items": items
+        })
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

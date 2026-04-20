@@ -4,3 +4,4 @@ Werkzeug
 flask-socketio
 eventlet
 xhtml2pdf
+flask-cors
