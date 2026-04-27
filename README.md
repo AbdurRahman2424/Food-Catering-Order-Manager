@@ -68,3 +68,4 @@ Works out of the box, no extra steps needed.
 - `templates/`: Jinja2 HTML templates using Bootstrap 5.
 - `static/`: Custom CSS and assets.
 - `requirements.txt`: Python package dependencies.
+ 
