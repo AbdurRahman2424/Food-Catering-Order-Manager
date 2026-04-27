@@ -2,7 +2,8 @@ Flask
 PyMySQL
 Werkzeug
 flask-socketio
-eventlet
+gevent
+gevent-websocket
 xhtml2pdf==0.2.11
 reportlab<4.0
 gunicorn

@@ -14,7 +14,7 @@ from urllib import error as urllib_error
 
 app = Flask(__name__)
 app.config.from_object(Config)
-socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode='gevent')
 
 ROLE_LABELS = {
     'admin': 'Admin',
