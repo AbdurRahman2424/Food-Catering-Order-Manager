@@ -212,6 +212,7 @@ def new_order():
     db = get_db()
     reorder_id = request.args.get('reorder')
     prefill_data = None
+    selected_delivery_date = date.today().isoformat()
     
     if reorder_id:
         with db.cursor() as cursor:
@@ -234,6 +235,7 @@ def new_order():
     if request.method == 'POST':
         customer_id = request.form.get('customer_id')
         delivery_date = request.form.get('delivery_date')
+        selected_delivery_date = delivery_date or selected_delivery_date
         notes = request.form.get('notes')
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
@@ -274,7 +276,14 @@ def new_order():
         cursor.execute("SELECT * FROM products WHERE is_active = 1 ORDER BY name")
         products = cursor.fetchall()
         
-    return render_template('new_order.html', customers=customers, products=products, prefill_data=prefill_data)
+    return render_template(
+        'new_order.html',
+        customers=customers,
+        products=products,
+        prefill_data=prefill_data,
+        today=date.today().isoformat(),
+        selected_delivery_date=selected_delivery_date
+    )
 
 @app.route('/orders/<int:id>')
 @login_required
@@ -612,6 +621,35 @@ def customer_detail(id):
         history = cursor.fetchall()
         
     return render_template('customer_detail.html', customer=customer, history=history)
+
+@app.route('/customers/<int:id>/delete', methods=['POST'])
+@login_required
+def delete_customer(id):
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("SELECT name FROM customers WHERE id = %s", (id,))
+            customer = cursor.fetchone()
+            if not customer:
+                flash('Customer not found.', 'danger')
+                return redirect(url_for('customers'))
+
+            cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE customer_id = %s", (id,))
+            order_count = cursor.fetchone()['count']
+
+            if order_count > 0:
+                flash(f"Cannot delete {customer['name']} because they already have {order_count} order(s).", 'warning')
+                return redirect(request.referrer or url_for('customers'))
+
+            cursor.execute("DELETE FROM customers WHERE id = %s", (id,))
+            db.commit()
+
+            flash(f"Customer {customer['name']} deleted successfully.", 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error deleting customer: {str(e)}', 'danger')
+
+    return redirect(url_for('customers'))
 
 # --- Existing Product, Summary, Picklist ---
 

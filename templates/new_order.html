@@ -53,7 +53,7 @@
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label class="form-label">Delivery Date</label>
-                            <input type="date" name="delivery_date" class="form-control" required min="{{ today }}">
+                            <input type="date" name="delivery_date" class="form-control" required min="{{ today }}" value="{{ selected_delivery_date }}">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Order Status</label>
@@ -226,12 +226,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Quick add customer
     const customerForm = document.getElementById('quick-customer-form');
+    const customerModalEl = document.getElementById('addCustomerModal');
     customerForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const formData = new FormData(customerForm);
         try {
             const response = await fetch('/customers/new', {
                 method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                },
                 body: formData
             });
             const data = await response.json();
@@ -239,7 +244,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const select = document.getElementById('customer-select');
                 const newOption = new Option(data.name, data.id, true, true);
                 select.add(newOption);
-                bootstrap.Modal.getInstance(document.getElementById('addCustomerModal')).hide();
+                bootstrap.Modal.getOrCreateInstance(customerModalEl).hide();
                 customerForm.reset();
                 showToast(`Customer ${data.name} added successfully!`, 'green');
             } else {

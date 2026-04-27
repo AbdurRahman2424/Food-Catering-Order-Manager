@@ -72,9 +72,21 @@
                         {{ customer.last_order_date.strftime('%Y-%m-%d') if customer.last_order_date else 'Never' }}
                     </td>
                     <td>
-                        <a href="{{ url_for('customer_detail', id=customer.id) }}" class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-person-lines-fill me-1"></i>View History
-                        </a>
+                        <div class="d-flex gap-2">
+                            <a href="{{ url_for('customer_detail', id=customer.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-person-lines-fill me-1"></i>View History
+                            </a>
+                            <form id="delete-customer-{{ customer.id }}" action="{{ url_for('delete_customer', id=customer.id) }}" method="POST" class="d-inline">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#confirmModal"
+                                        data-bs-message="Delete customer {{ customer.name }}?"
+                                        data-bs-form="delete-customer-{{ customer.id }}">
+                                    <i class="bi bi-trash me-1"></i>Delete
+                                </button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
