@@ -804,6 +804,108 @@ def summary():
         today_orders = cursor.fetchall()
     return render_template('summary.html', due_today=due_today, overdue=overdue, in_prep=in_prep, delivered_today=delivered_today, today_orders=today_orders)
 
+@app.route('/reports/sales')
+@role_required('admin')
+def sales_reports():
+    today_val = date.today()
+    week_start = today_val - timedelta(days=today_val.weekday())
+    month_start = date(today_val.year, today_val.month, 1)
+    year_start = date(today_val.year, 1, 1)
+
+    db = get_db()
+    with db.cursor() as cursor:
+        def fetch_total(start_date, end_date=None):
+            sql = """
+                SELECT COUNT(DISTINCT o.id) AS order_count,
+                       COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
+                FROM orders o
+                LEFT JOIN order_items oi ON o.id = oi.order_id
+                WHERE o.status = 'delivered' AND o.delivery_date >= %s
+            """
+            params = [start_date]
+            if end_date is not None:
+                sql += " AND o.delivery_date < %s"
+                params.append(end_date)
+            cursor.execute(sql, params)
+            return cursor.fetchone()
+
+        daily_total = fetch_total(today_val)
+        weekly_total = fetch_total(week_start)
+        monthly_total = fetch_total(month_start)
+        yearly_total = fetch_total(year_start)
+
+        cursor.execute("""
+            SELECT o.delivery_date AS period_date,
+                   COUNT(DISTINCT o.id) AS order_count,
+                   COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.status = 'delivered'
+            GROUP BY o.delivery_date
+            ORDER BY o.delivery_date DESC
+            LIMIT 7
+        """)
+        daily_breakdown = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT YEAR(o.delivery_date) AS sales_year,
+                   WEEK(o.delivery_date, 1) AS sales_week,
+                   MIN(o.delivery_date) AS week_start,
+                   MAX(o.delivery_date) AS week_end,
+                   COUNT(DISTINCT o.id) AS order_count,
+                   COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.status = 'delivered'
+            GROUP BY YEAR(o.delivery_date), WEEK(o.delivery_date, 1)
+            ORDER BY sales_year DESC, sales_week DESC
+            LIMIT 8
+        """)
+        weekly_breakdown = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT YEAR(o.delivery_date) AS sales_year,
+                   MONTH(o.delivery_date) AS sales_month_num,
+                   DATE_FORMAT(o.delivery_date, '%%b %%Y') AS sales_month,
+                   COUNT(DISTINCT o.id) AS order_count,
+                   COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.status = 'delivered'
+            GROUP BY YEAR(o.delivery_date), MONTH(o.delivery_date), DATE_FORMAT(o.delivery_date, '%%b %%Y')
+            ORDER BY YEAR(o.delivery_date) DESC, MONTH(o.delivery_date) DESC
+            LIMIT 12
+        """)
+        monthly_breakdown = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT YEAR(o.delivery_date) AS sales_year,
+                   COUNT(DISTINCT o.id) AS order_count,
+                   COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.status = 'delivered'
+            GROUP BY YEAR(o.delivery_date)
+            ORDER BY sales_year DESC
+        """)
+        yearly_breakdown = cursor.fetchall()
+
+    return render_template(
+        'sales_reports.html',
+        today=today_val,
+        week_start=week_start,
+        month_start=month_start,
+        year_start=year_start,
+        daily_total=daily_total,
+        weekly_total=weekly_total,
+        monthly_total=monthly_total,
+        yearly_total=yearly_total,
+        daily_breakdown=daily_breakdown,
+        weekly_breakdown=weekly_breakdown,
+        monthly_breakdown=monthly_breakdown,
+        yearly_breakdown=yearly_breakdown
+    )
+
 @app.route('/picklist')
 @role_required('admin', 'kitchen', 'kitchen_chef')
 def picklist():
