@@ -1,0 +1,2 @@
+railway.com for the online thing
+MySQL workbench to import the  schema of database
