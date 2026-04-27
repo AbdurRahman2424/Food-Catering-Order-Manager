@@ -1,17 +1,61 @@
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_FILE_PATH = os.path.join(BASE_DIR, '.env')
+
+DEFAULT_ENV_VALUES = {
+    'MYSQL_HOST': 'localhost',
+    'MYSQL_USER': 'root',
+    'MYSQL_PASSWORD': '',
+    'MYSQL_DB': 'catering_db',
+    'SECRET_KEY': 'dev_secret_key_123',
+    'GROQ_API_KEY_1': '',
+    'GROQ_API_KEY_2': '',
+    'GROQ_MODEL': 'llama-3.3-70b-versatile',
+    'OPENROUTER_API_KEY_1': '',
+    'OPENROUTER_API_KEY_2': '',
+    'OPENROUTER_MODEL': 'openai/gpt-4.1-mini'
+}
+
+def ensure_env_file():
+    if os.path.exists(ENV_FILE_PATH):
+        return
+
+    lines = [f'{key}={value}' for key, value in DEFAULT_ENV_VALUES.items()]
+    with open(ENV_FILE_PATH, 'w', encoding='utf-8') as env_file:
+        env_file.write('\n'.join(lines) + '\n')
+
+def load_env_file():
+    ensure_env_file()
+    env_values = {}
+
+    with open(ENV_FILE_PATH, 'r', encoding='utf-8') as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            env_values[key.strip()] = value.strip()
+
+    return env_values
+
+def get_env_value(key):
+    file_values = load_env_file()
+    return os.environ.get(key, file_values.get(key, DEFAULT_ENV_VALUES.get(key, '')))
+
+ensure_env_file()
+
 class Config:
-    # 1. Host is localhost for XAMPP
-    MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
-    
-    # 2. User is always root by default in XAMPP
-    MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
-    
-    # 3. Keep this EMPTY for XAMPP
-    MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', '')
-    
-    # 4. This MUST match the 'CREATE DATABASE' name in your script
-    MYSQL_DB = os.environ.get('MYSQL_DB', 'catering_db')
-    
-    # 5. Just for Flask sessions
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev_secret_key_123')
+    MYSQL_HOST = get_env_value('MYSQL_HOST')
+    MYSQL_USER = get_env_value('MYSQL_USER')
+    MYSQL_PASSWORD = get_env_value('MYSQL_PASSWORD')
+    MYSQL_DB = get_env_value('MYSQL_DB')
+    SECRET_KEY = get_env_value('SECRET_KEY')
+
+    GROQ_API_KEY_1 = get_env_value('GROQ_API_KEY_1')
+    GROQ_API_KEY_2 = get_env_value('GROQ_API_KEY_2')
+    GROQ_MODEL = get_env_value('GROQ_MODEL')
+
+    OPENROUTER_API_KEY_1 = get_env_value('OPENROUTER_API_KEY_1')
+    OPENROUTER_API_KEY_2 = get_env_value('OPENROUTER_API_KEY_2')
+    OPENROUTER_MODEL = get_env_value('OPENROUTER_MODEL')

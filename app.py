@@ -3,10 +3,14 @@ import pymysql.cursors
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
-from config import Config
+from config import Config, ENV_FILE_PATH, DEFAULT_ENV_VALUES, ensure_env_file, load_env_file
 from flask_socketio import SocketIO, emit
 from xhtml2pdf import pisa
 import io
+import json
+import os
+from urllib import request as urllib_request
+from urllib import error as urllib_error
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -20,6 +24,7 @@ ROLE_LABELS = {
     'delivery': 'Delivery'
 }
 STAFF_ROLE_MIGRATION_CHECKED = False
+AI_REPORTS_TABLE_CHECKED = False
 
 # Database connection helper
 def get_db():
@@ -32,6 +37,7 @@ def get_db():
             cursorclass=pymysql.cursors.DictCursor
         )
         ensure_staff_role_enum(g.db)
+        ensure_ai_reports_table(g.db)
     return g.db
 
 def ensure_staff_role_enum(db):
@@ -62,6 +68,30 @@ def ensure_staff_role_enum(db):
         db.rollback()
     finally:
         STAFF_ROLE_MIGRATION_CHECKED = True
+
+def ensure_ai_reports_table(db):
+    global AI_REPORTS_TABLE_CHECKED
+    if AI_REPORTS_TABLE_CHECKED:
+        return
+
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ai_daily_reports (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    report_date DATE NOT NULL UNIQUE,
+                    summary_text TEXT NOT NULL,
+                    provider VARCHAR(50) NOT NULL,
+                    model_name VARCHAR(120) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        AI_REPORTS_TABLE_CHECKED = True
 
 @app.teardown_appcontext
 def close_db(error):
@@ -100,6 +130,212 @@ def role_required(*allowed_roles):
 @app.context_processor
 def inject_role_helpers():
     return {'role_labels': ROLE_LABELS}
+
+def update_env_file(updates):
+    ensure_env_file()
+    env_values = DEFAULT_ENV_VALUES.copy()
+    env_values.update(load_env_file())
+    env_values.update(updates)
+
+    lines = [f'{key}={env_values.get(key, "")}' for key in DEFAULT_ENV_VALUES]
+    with open(ENV_FILE_PATH, 'w', encoding='utf-8') as env_file:
+        env_file.write('\n'.join(lines) + '\n')
+
+def sync_runtime_config_from_env():
+    env_values = load_env_file()
+    for key in DEFAULT_ENV_VALUES:
+        app.config[key] = env_values.get(key, DEFAULT_ENV_VALUES[key])
+
+def call_chat_provider(url, headers, payload):
+    req = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode('utf-8'),
+        headers=headers,
+        method='POST'
+    )
+    with urllib_request.urlopen(req, timeout=30) as response:
+        body = response.read().decode('utf-8')
+        data = json.loads(body)
+        return data['choices'][0]['message']['content'].strip()
+
+def get_ai_provider_configs():
+    return [
+        {
+            'provider': 'Groq',
+            'api_key': app.config.get('GROQ_API_KEY_1'),
+            'model': app.config.get('GROQ_MODEL'),
+            'url': 'https://api.groq.com/openai/v1/chat/completions',
+            'headers': lambda key: {
+                'Authorization': f'Bearer {key}',
+                'Content-Type': 'application/json'
+            }
+        },
+        {
+            'provider': 'Groq',
+            'api_key': app.config.get('GROQ_API_KEY_2'),
+            'model': app.config.get('GROQ_MODEL'),
+            'url': 'https://api.groq.com/openai/v1/chat/completions',
+            'headers': lambda key: {
+                'Authorization': f'Bearer {key}',
+                'Content-Type': 'application/json'
+            }
+        },
+        {
+            'provider': 'OpenRouter',
+            'api_key': app.config.get('OPENROUTER_API_KEY_1'),
+            'model': app.config.get('OPENROUTER_MODEL'),
+            'url': 'https://openrouter.ai/api/v1/chat/completions',
+            'headers': lambda key: {
+                'Authorization': f'Bearer {key}',
+                'Content-Type': 'application/json'
+            }
+        },
+        {
+            'provider': 'OpenRouter',
+            'api_key': app.config.get('OPENROUTER_API_KEY_2'),
+            'model': app.config.get('OPENROUTER_MODEL'),
+            'url': 'https://openrouter.ai/api/v1/chat/completions',
+            'headers': lambda key: {
+                'Authorization': f'Bearer {key}',
+                'Content-Type': 'application/json'
+            }
+        }
+    ]
+
+def build_daily_summary_payload(report_date):
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE delivery_date = %s", (report_date,))
+        due_today = cursor.fetchone()['count']
+
+        cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE delivery_date < %s AND status != 'delivered'", (report_date,))
+        overdue = cursor.fetchone()['count']
+
+        cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE status = 'in_preparation'", ())
+        in_prep = cursor.fetchone()['count']
+
+        cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE delivery_date = %s AND status = 'delivered'", (report_date,))
+        delivered_today = cursor.fetchone()['count']
+
+        cursor.execute("""
+            SELECT o.status, COUNT(*) AS count
+            FROM orders o
+            WHERE o.delivery_date = %s
+            GROUP BY o.status
+        """, (report_date,))
+        status_rows = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.status = 'delivered' AND o.delivery_date = %s
+        """, (report_date,))
+        delivered_revenue = cursor.fetchone()['revenue']
+
+        cursor.execute("""
+            SELECT o.id, c.name AS customer_name, o.status,
+                   COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS total_value
+            FROM orders o
+            JOIN customers c ON o.customer_id = c.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            WHERE o.delivery_date = %s
+            GROUP BY o.id, c.name, o.status
+            ORDER BY total_value DESC, o.id DESC
+            LIMIT 5
+        """, (report_date,))
+        top_orders = cursor.fetchall()
+
+    return {
+        'report_date': report_date.strftime('%Y-%m-%d'),
+        'due_today': due_today,
+        'overdue': overdue,
+        'in_prep': in_prep,
+        'delivered_today': delivered_today,
+        'delivered_revenue': float(delivered_revenue or 0),
+        'status_counts': {row['status']: row['count'] for row in status_rows},
+        'top_orders': [
+            {
+                'order_id': row['id'],
+                'customer_name': row['customer_name'],
+                'status': row['status'],
+                'total_value': float(row['total_value'] or 0)
+            }
+            for row in top_orders
+        ]
+    }
+
+def generate_ai_daily_summary(report_date):
+    metrics = build_daily_summary_payload(report_date)
+    provider_errors = []
+    prompt = f"""
+You are creating a concise business summary for a catering company.
+Write 3 short paragraphs:
+1. Overall day summary.
+2. Operational risks or bottlenecks.
+3. Recommended actions for the owner/admin.
+
+Use only the data below and do not invent facts.
+
+Report date: {metrics['report_date']}
+Orders due today: {metrics['due_today']}
+Overdue orders: {metrics['overdue']}
+Orders currently in preparation: {metrics['in_prep']}
+Orders delivered today: {metrics['delivered_today']}
+Delivered revenue today: {metrics['delivered_revenue']:.2f}
+Status counts today: {json.dumps(metrics['status_counts'])}
+Top orders today: {json.dumps(metrics['top_orders'])}
+""".strip()
+
+    payload_template = {
+        'messages': [
+            {'role': 'system', 'content': 'You are an operations analyst for a catering business.'},
+            {'role': 'user', 'content': prompt}
+        ],
+        'temperature': 0.4
+    }
+
+    for provider in get_ai_provider_configs():
+        api_key = provider['api_key']
+        if not api_key:
+            continue
+
+        payload = dict(payload_template)
+        payload['model'] = provider['model']
+
+        try:
+            summary_text = call_chat_provider(
+                provider['url'],
+                provider['headers'](api_key),
+                payload
+            )
+            return {
+                'summary_text': summary_text,
+                'provider': provider['provider'],
+                'model_name': provider['model']
+            }
+        except (urllib_error.HTTPError, urllib_error.URLError, KeyError, IndexError, json.JSONDecodeError) as e:
+            provider_errors.append(f"{provider['provider']} ({provider['model']}): {str(e)}")
+
+    raise RuntimeError("All AI providers failed. " + " | ".join(provider_errors) if provider_errors else "No AI provider API keys are configured.")
+
+def save_ai_daily_summary(report_date, summary_data):
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO ai_daily_reports (report_date, summary_text, provider, model_name)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                summary_text = VALUES(summary_text),
+                provider = VALUES(provider),
+                model_name = VALUES(model_name)
+        """, (
+            report_date,
+            summary_data['summary_text'],
+            summary_data['provider'],
+            summary_data['model_name']
+        ))
+        db.commit()
 
 # --- Dashboard & Activity Routes ---
 
@@ -146,7 +382,7 @@ def api_dashboard_data():
         # but for this schema we'll use orders sorted by last updated if we had that. 
         # Since we don't, we'll return last 10 orders created)
         cursor.execute("""
-            SELECT o.id, c.name as customer, o.status, DATE_FORMAT(o.created_at, '%%H:%%i') as time 
+            SELECT o.id, c.name as customer, o.status, DATE_FORMAT(o.created_at, '%H:%i') as time 
             FROM orders o 
             JOIN customers c ON o.customer_id = c.id 
             ORDER BY o.created_at DESC LIMIT 10
@@ -802,7 +1038,36 @@ def summary():
             JOIN customers c ON o.customer_id = c.id WHERE o.delivery_date = %s ORDER BY o.status
         """, (today_val,))
         today_orders = cursor.fetchall()
-    return render_template('summary.html', due_today=due_today, overdue=overdue, in_prep=in_prep, delivered_today=delivered_today, today_orders=today_orders)
+
+        cursor.execute("""
+            SELECT summary_text, provider, model_name, updated_at
+            FROM ai_daily_reports
+            WHERE report_date = %s
+        """, (today_val,))
+        ai_summary = cursor.fetchone()
+
+    return render_template(
+        'summary.html',
+        due_today=due_today,
+        overdue=overdue,
+        in_prep=in_prep,
+        delivered_today=delivered_today,
+        today_orders=today_orders,
+        ai_summary=ai_summary,
+        report_date=today_val
+    )
+
+@app.route('/summary/generate-ai', methods=['POST'])
+@role_required('admin')
+def generate_ai_summary():
+    report_date = date.today()
+    try:
+        summary_data = generate_ai_daily_summary(report_date)
+        save_ai_daily_summary(report_date, summary_data)
+        flash(f"AI daily summary generated using {summary_data['provider']} ({summary_data['model_name']}).", 'success')
+    except Exception as e:
+        flash(f'Error generating AI summary: {str(e)}', 'danger')
+    return redirect(url_for('summary'))
 
 @app.route('/reports/sales')
 @role_required('admin')
@@ -866,13 +1131,13 @@ def sales_reports():
         cursor.execute("""
             SELECT YEAR(o.delivery_date) AS sales_year,
                    MONTH(o.delivery_date) AS sales_month_num,
-                   DATE_FORMAT(o.delivery_date, '%%b %%Y') AS sales_month,
+                   DATE_FORMAT(o.delivery_date, '%b %Y') AS sales_month,
                    COUNT(DISTINCT o.id) AS order_count,
                    COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
             WHERE o.status = 'delivered'
-            GROUP BY YEAR(o.delivery_date), MONTH(o.delivery_date), DATE_FORMAT(o.delivery_date, '%%b %%Y')
+            GROUP BY YEAR(o.delivery_date), MONTH(o.delivery_date), DATE_FORMAT(o.delivery_date, '%b %Y')
             ORDER BY YEAR(o.delivery_date) DESC, MONTH(o.delivery_date) DESC
             LIMIT 12
         """)
@@ -994,6 +1259,45 @@ def admin_users():
         staff_users = cursor.fetchall()
 
     return render_template('admin_users.html', staff_users=staff_users)
+
+@app.route('/admin/api-settings', methods=['GET', 'POST'])
+@role_required('admin')
+def admin_api_settings():
+    ensure_env_file()
+
+    if request.method == 'POST':
+        updates = {
+            'GROQ_API_KEY_1': request.form.get('groq_api_key_1', '').strip(),
+            'GROQ_API_KEY_2': request.form.get('groq_api_key_2', '').strip(),
+            'GROQ_MODEL': request.form.get('groq_model', '').strip() or DEFAULT_ENV_VALUES['GROQ_MODEL'],
+            'OPENROUTER_API_KEY_1': request.form.get('openrouter_api_key_1', '').strip(),
+            'OPENROUTER_API_KEY_2': request.form.get('openrouter_api_key_2', '').strip(),
+            'OPENROUTER_MODEL': request.form.get('openrouter_model', '').strip() or DEFAULT_ENV_VALUES['OPENROUTER_MODEL']
+        }
+
+        try:
+            update_env_file(updates)
+            sync_runtime_config_from_env()
+            flash('API settings saved to .env successfully.', 'success')
+        except Exception as e:
+            flash(f'Error saving API settings: {str(e)}', 'danger')
+
+        return redirect(url_for('admin_api_settings'))
+
+    env_values = load_env_file()
+    return render_template(
+        'admin_api_settings.html',
+        env_exists=os.path.exists(ENV_FILE_PATH),
+        env_file_path=ENV_FILE_PATH,
+        settings={
+            'groq_api_key_1': env_values.get('GROQ_API_KEY_1', ''),
+            'groq_api_key_2': env_values.get('GROQ_API_KEY_2', ''),
+            'groq_model': env_values.get('GROQ_MODEL', DEFAULT_ENV_VALUES['GROQ_MODEL']),
+            'openrouter_api_key_1': env_values.get('OPENROUTER_API_KEY_1', ''),
+            'openrouter_api_key_2': env_values.get('OPENROUTER_API_KEY_2', ''),
+            'openrouter_model': env_values.get('OPENROUTER_MODEL', DEFAULT_ENV_VALUES['OPENROUTER_MODEL'])
+        }
+    )
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

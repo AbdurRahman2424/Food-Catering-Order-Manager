@@ -64,10 +64,16 @@
                     {% endif %}
                     {% if user_role == 'admin' %}
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}" href="{{ url_for('summary') }}">Summary</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'products' %}active{% endif %}" href="{{ url_for('products') }}">Products</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint in ['summary', 'sales_reports'] %}active{% endif %}" href="{{ url_for('sales_reports') }}">Sales Reports</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'admin_api_settings' %}active{% endif %}" href="{{ url_for('admin_api_settings') }}">API Settings</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Staff</a>

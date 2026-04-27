@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}API Settings{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-key me-2"></i>API Settings</h2>
+        <p class="text-muted mb-0">Manage Groq and OpenRouter keys from the admin panel.</p>
+    </div>
+</div>
+
+<div class="alert alert-info">
+    <div><strong>.env file:</strong> {{ env_file_path }}</div>
+    <div class="small mt-1">
+        {% if env_exists %}
+        The file exists and will be updated when you save.
+        {% else %}
+        The file does not exist yet. It will be created automatically when you save.
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white fw-bold py-3">Groq</div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Groq API Key 1</label>
+                        <input type="text" name="groq_api_key_1" class="form-control" value="{{ settings.groq_api_key_1 }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Groq API Key 2</label>
+                        <input type="text" name="groq_api_key_2" class="form-control" value="{{ settings.groq_api_key_2 }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Groq Model</label>
+                        <input type="text" name="groq_model" class="form-control" value="{{ settings.groq_model }}">
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="mb-3">
+                        <label class="form-label">OpenRouter API Key 1</label>
+                        <input type="text" name="openrouter_api_key_1" class="form-control" value="{{ settings.openrouter_api_key_1 }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">OpenRouter API Key 2</label>
+                        <input type="text" name="openrouter_api_key_2" class="form-control" value="{{ settings.openrouter_api_key_2 }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">OpenRouter Model</label>
+                        <input type="text" name="openrouter_model" class="form-control" value="{{ settings.openrouter_model }}">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save me-1"></i>Save API Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white fw-bold py-3">How It Works</div>
+            <div class="card-body">
+                <p class="mb-3">The AI daily summary uses this fallback order:</p>
+                <ol class="mb-4">
+                    <li>Groq API Key 1</li>
+                    <li>Groq API Key 2</li>
+                    <li>OpenRouter API Key 1</li>
+                    <li>OpenRouter API Key 2</li>
+                </ol>
+                <p class="mb-3">After you save, the running app reloads the values from <code>.env</code> immediately.</p>
+                <p class="mb-0 text-muted small">This page should stay admin-only because it contains live API credentials.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

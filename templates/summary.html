@@ -4,8 +4,17 @@
 
 {% block content %}
 <div class="mb-4">
-    <h2><i class="bi bi-speedometer2 me-2"></i>Summary Dashboard</h2>
-    <p class="text-muted">Metrics and overview for today, {{ today_orders[0].delivery_date.strftime('%B %d, %Y') if today_orders else 'Today' }}</p>
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+            <h2><i class="bi bi-speedometer2 me-2"></i>Summary Dashboard</h2>
+            <p class="text-muted mb-0">Metrics and overview for today, {{ today_orders[0].delivery_date.strftime('%B %d, %Y') if today_orders else report_date.strftime('%B %d, %Y') }}</p>
+        </div>
+        <form action="{{ url_for('generate_ai_summary') }}" method="POST">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-stars me-1"></i>Generate AI Summary
+            </button>
+        </form>
+    </div>
 </div>
 
 <!-- Metric Cards -->
@@ -41,6 +50,24 @@
                 <h2 class="mb-0">{{ delivered_today }}</h2>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-stars me-2"></i>AI Daily Summary</h5>
+        {% if ai_summary %}
+        <small class="text-muted">
+            {{ ai_summary.provider }} | {{ ai_summary.model_name }} | {{ ai_summary.updated_at.strftime('%Y-%m-%d %H:%M') }}
+        </small>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if ai_summary %}
+        <div style="white-space: pre-line;">{{ ai_summary.summary_text }}</div>
+        {% else %}
+        <p class="text-muted mb-0">No AI summary has been generated for today yet.</p>
+        {% endif %}
     </div>
 </div>
 

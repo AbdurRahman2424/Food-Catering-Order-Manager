@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS order_comments (
     FOREIGN KEY (staff_id) REFERENCES staff(id)
 );
 
+-- AI Daily Reports table
+CREATE TABLE IF NOT EXISTS ai_daily_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    report_date DATE NOT NULL UNIQUE,
+    summary_text TEXT NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    model_name VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 -- Seed Data
 -- Initial Admin Staff (password: admin123)
 -- Hash generated using werkzeug.security.generate_password_hash('admin123')

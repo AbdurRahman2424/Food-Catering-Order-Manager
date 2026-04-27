@@ -8,3 +8,7 @@ Go to http://localhost:5000/login
 Email: admin@catering.com
 
 Password: admin123
+
+
+
+http://localhost/phpmyadmin/
