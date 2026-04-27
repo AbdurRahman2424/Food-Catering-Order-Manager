@@ -75,7 +75,7 @@
 <div class="container my-4 no-print">
     <div style="text-align: right;">
         <a href="{{ url_for('order_invoice_pdf', id=order.id) }}" class="btn btn-dark">Download PDF</a>
-        <button onclick="window.print()" class="btn btn-outline-secondary">Print</button>
+        <button onclick="window.print()">Print / Save as PDF</button>
         <a href="{{ url_for('order_detail', id=order.id) }}" class="btn btn-link">Back to Order</a>
     </div>
 </div>

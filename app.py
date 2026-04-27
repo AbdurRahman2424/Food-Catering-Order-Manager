@@ -5,8 +5,8 @@ from functools import wraps
 from datetime import datetime, date, timedelta
 from config import Config, ENV_FILE_PATH, DEFAULT_ENV_VALUES, ensure_env_file, load_env_file
 from flask_socketio import SocketIO, emit
-from xhtml2pdf import pisa
-import io
+
+
 import json
 import os
 from urllib import request as urllib_request
@@ -809,54 +809,7 @@ def order_invoice(id):
 @app.route('/orders/<int:id>/invoice/pdf')
 @role_required('admin', 'order_taker')
 def order_invoice_pdf(id):
-    db = get_db()
-    invoice = get_or_create_invoice(db, id)
-
-    with db.cursor() as cursor:
-        sql_order = """
-            SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, 
-                   c.email AS customer_email, c.address AS customer_address,
-                   s.name AS staff_name
-            FROM orders o
-            JOIN customers c ON o.customer_id = c.id
-            JOIN staff s ON o.staff_id = s.id
-            WHERE o.id = %s
-        """
-        cursor.execute(sql_order, (id,))
-        order = cursor.fetchone()
-            
-        sql_items = """
-            SELECT oi.*, p.name AS product_name, p.unit
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            WHERE oi.order_id = %s
-        """
-        cursor.execute(sql_items, (id,))
-        items = cursor.fetchall()
-        total_price = sum(item['quantity'] * item['unit_price'] for item in items)
-        balance_due = max(total_price - float(invoice.get('amount_paid', 0) or 0), 0)
-
-    html_string = render_template('invoice.html', 
-                                 order=order, 
-                                 items=items, 
-                                 total_price=total_price, 
-                                 invoice=invoice,
-                                 invoice_number=invoice['invoice_number'],
-                                 generated_at=invoice['generated_at'],
-                                 balance_due=balance_due,
-                                 pdf_mode=True)
-    
-    pdf_buffer = io.BytesIO()
-    pisa_status = pisa.CreatePDF(io.StringIO(html_string), dest=pdf_buffer)
-    if pisa_status.err:
-        flash('Error generating PDF. Please try again.', 'danger')
-        return redirect(url_for('order_detail', id=id))
-    
-    pdf_buffer.seek(0)
-    response = make_response(pdf_buffer.read())
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'attachment; filename=Invoice-{invoice["invoice_number"]}.pdf'
-    return response
+    return redirect(url_for('order_invoice', id=id))
 
 @app.route('/orders/<int:id>/receipt', methods=['POST'])
 @role_required('admin', 'order_taker')
