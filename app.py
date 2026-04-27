@@ -3,7 +3,7 @@ import pymysql.cursors
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
-from config import Config, ENV_FILE_PATH, DEFAULT_ENV_VALUES, ensure_env_file, load_env_file
+from config import Config, ENV_FILE_PATH, DEFAULT_ENV_VALUES, load_env_file, get_env_value
 from flask_socketio import SocketIO, emit
 
 
@@ -183,7 +183,6 @@ def inject_role_helpers():
     return {'role_labels': ROLE_LABELS}
 
 def update_env_file(updates):
-    ensure_env_file()
     env_values = DEFAULT_ENV_VALUES.copy()
     env_values.update(load_env_file())
     env_values.update(updates)
@@ -193,9 +192,8 @@ def update_env_file(updates):
         env_file.write('\n'.join(lines) + '\n')
 
 def sync_runtime_config_from_env():
-    env_values = load_env_file()
     for key in DEFAULT_ENV_VALUES:
-        app.config[key] = env_values.get(key, DEFAULT_ENV_VALUES[key])
+        app.config[key] = get_env_value(key)
 
 def get_or_create_invoice(db, order_id):
     with db.cursor() as cursor:
@@ -1377,8 +1375,6 @@ def admin_users():
 @app.route('/admin/api-settings', methods=['GET', 'POST'])
 @role_required('admin')
 def admin_api_settings():
-    ensure_env_file()
-
     if request.method == 'POST':
         updates = {
             'GROQ_API_KEY_1': request.form.get('groq_api_key_1', '').strip(),
@@ -1389,27 +1385,30 @@ def admin_api_settings():
             'OPENROUTER_MODEL': request.form.get('openrouter_model', '').strip() or DEFAULT_ENV_VALUES['OPENROUTER_MODEL']
         }
 
+        for key, value in updates.items():
+            app.config[key] = value
+
         try:
             update_env_file(updates)
-            sync_runtime_config_from_env()
             flash('API settings saved to .env successfully.', 'success')
+        except OSError:
+            flash('API settings applied for this runtime, but .env could not be written. Keys will reset on redeploy.', 'warning')
         except Exception as e:
             flash(f'Error saving API settings: {str(e)}', 'danger')
 
         return redirect(url_for('admin_api_settings'))
 
-    env_values = load_env_file()
     return render_template(
         'admin_api_settings.html',
         env_exists=os.path.exists(ENV_FILE_PATH),
         env_file_path=ENV_FILE_PATH,
         settings={
-            'groq_api_key_1': env_values.get('GROQ_API_KEY_1', ''),
-            'groq_api_key_2': env_values.get('GROQ_API_KEY_2', ''),
-            'groq_model': env_values.get('GROQ_MODEL', DEFAULT_ENV_VALUES['GROQ_MODEL']),
-            'openrouter_api_key_1': env_values.get('OPENROUTER_API_KEY_1', ''),
-            'openrouter_api_key_2': env_values.get('OPENROUTER_API_KEY_2', ''),
-            'openrouter_model': env_values.get('OPENROUTER_MODEL', DEFAULT_ENV_VALUES['OPENROUTER_MODEL'])
+            'groq_api_key_1': app.config.get('GROQ_API_KEY_1', ''),
+            'groq_api_key_2': app.config.get('GROQ_API_KEY_2', ''),
+            'groq_model': app.config.get('GROQ_MODEL', DEFAULT_ENV_VALUES['GROQ_MODEL']),
+            'openrouter_api_key_1': app.config.get('OPENROUTER_API_KEY_1', ''),
+            'openrouter_api_key_2': app.config.get('OPENROUTER_API_KEY_2', ''),
+            'openrouter_model': app.config.get('OPENROUTER_MODEL', DEFAULT_ENV_VALUES['OPENROUTER_MODEL'])
         }
     )
 
