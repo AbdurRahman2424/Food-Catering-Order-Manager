@@ -230,26 +230,29 @@ def call_chat_provider(url, headers, payload):
 def get_ai_provider_configs():
     return [
         {
+            'key_label': 'Groq API Key 1',
             'provider': 'Groq',
             'api_key': app.config.get('GROQ_API_KEY_1'),
             'model': app.config.get('GROQ_MODEL'),
-            'url': 'https://api.groq.com/openai/v1',
+            'url': 'https://api.groq.com/openai/v1/chat/completions',
             'headers': lambda key: {
                 'Authorization': f'Bearer {key}',
                 'Content-Type': 'application/json'
             }
         },
         {
+            'key_label': 'Groq API Key 2',
             'provider': 'Groq',
             'api_key': app.config.get('GROQ_API_KEY_2'),
             'model': app.config.get('GROQ_MODEL'),
-            'url': 'https://api.groq.com/openai/v1',
+            'url': 'https://api.groq.com/openai/v1/chat/completions',
             'headers': lambda key: {
                 'Authorization': f'Bearer {key}',
                 'Content-Type': 'application/json'
             }
         },
         {
+            'key_label': 'OpenRouter API Key 1',
             'provider': 'OpenRouter',
             'api_key': app.config.get('OPENROUTER_API_KEY_1'),
             'model': app.config.get('OPENROUTER_MODEL'),
@@ -260,6 +263,7 @@ def get_ai_provider_configs():
             }
         },
         {
+            'key_label': 'OpenRouter API Key 2',
             'provider': 'OpenRouter',
             'api_key': app.config.get('OPENROUTER_API_KEY_2'),
             'model': app.config.get('OPENROUTER_MODEL'),
@@ -270,6 +274,58 @@ def get_ai_provider_configs():
             }
         }
     ]
+
+def run_api_key_chain_test():
+    results = []
+    test_payload_base = {
+        'messages': [
+            {'role': 'system', 'content': 'You are a health check endpoint.'},
+            {'role': 'user', 'content': 'Reply with exactly OK'}
+        ],
+        'temperature': 0
+    }
+
+    for provider in get_ai_provider_configs():
+        api_key = (provider.get('api_key') or '').strip()
+        result = {
+            'key_label': provider.get('key_label', provider['provider']),
+            'provider': provider['provider'],
+            'model': provider['model'],
+            'configured': bool(api_key),
+            'status': 'skipped',
+            'message': 'API key is empty.'
+        }
+
+        if not api_key:
+            results.append(result)
+            continue
+
+        payload = dict(test_payload_base)
+        payload['model'] = provider['model']
+
+        try:
+            response_text = call_chat_provider(
+                provider['url'],
+                provider['headers'](api_key),
+                payload
+            )
+            result['status'] = 'passed'
+            result['message'] = (response_text or 'OK')[:200]
+        except urllib_error.HTTPError as e:
+            error_body = ''
+            try:
+                error_body = e.read().decode('utf-8', errors='replace')[:200]
+            except Exception:
+                error_body = str(e)
+            result['status'] = 'failed'
+            result['message'] = f"HTTP {e.code}: {error_body or str(e)}"
+        except (urllib_error.URLError, KeyError, IndexError, json.JSONDecodeError) as e:
+            result['status'] = 'failed'
+            result['message'] = str(e)
+
+        results.append(result)
+
+    return results
 
 def build_daily_summary_payload(report_date):
     db = get_db()
@@ -1402,6 +1458,18 @@ def admin_api_settings():
             'openrouter_model': env_values.get('OPENROUTER_MODEL', DEFAULT_ENV_VALUES['OPENROUTER_MODEL'])
         }
     )
+
+@app.route('/admin/api-key-test', methods=['GET', 'POST'])
+@role_required('admin')
+def admin_api_key_test():
+    test_results = []
+    tested = False
+
+    if request.method == 'POST':
+        test_results = run_api_key_chain_test()
+        tested = True
+
+    return render_template('admin_api_test.html', test_results=test_results, tested=tested)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

@@ -76,6 +76,9 @@
                         <a class="nav-link {% if request.endpoint == 'admin_api_settings' %}active{% endif %}" href="{{ url_for('admin_api_settings') }}">API Settings</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'admin_api_key_test' %}active{% endif %}" href="{{ url_for('admin_api_key_test') }}">API Key Test</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Staff</a>
                     </li>
                     {% endif %}
