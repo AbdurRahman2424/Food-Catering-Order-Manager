@@ -12,6 +12,15 @@ app = Flask(__name__)
 app.config.from_object(Config)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
+ROLE_LABELS = {
+    'admin': 'Admin',
+    'order_taker': 'Order Taker',
+    'kitchen': 'Kitchen',
+    'kitchen_chef': 'Kitchen Chef',
+    'delivery': 'Delivery'
+}
+STAFF_ROLE_MIGRATION_CHECKED = False
+
 # Database connection helper
 def get_db():
     if 'db' not in g:
@@ -22,7 +31,37 @@ def get_db():
             database=app.config['MYSQL_DB'],
             cursorclass=pymysql.cursors.DictCursor
         )
+        ensure_staff_role_enum(g.db)
     return g.db
+
+def ensure_staff_role_enum(db):
+    global STAFF_ROLE_MIGRATION_CHECKED
+    if STAFF_ROLE_MIGRATION_CHECKED:
+        return
+
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("""
+                SELECT COLUMN_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'staff' AND COLUMN_NAME = 'role'
+            """, (app.config['MYSQL_DB'],))
+            column = cursor.fetchone()
+            if not column:
+                return
+
+            column_type = column['COLUMN_TYPE']
+            required_roles = ['admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery']
+            if all(f"'{role}'" in column_type for role in required_roles):
+                return
+
+            enum_values = "', '".join(required_roles)
+            cursor.execute(f"ALTER TABLE staff MODIFY role ENUM('{enum_values}') NOT NULL")
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        STAFF_ROLE_MIGRATION_CHECKED = True
 
 @app.teardown_appcontext
 def close_db(error):
@@ -38,6 +77,29 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+def role_required(*allowed_roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if 'user_id' not in session:
+                flash('Please log in to access this page.', 'warning')
+                return redirect(url_for('login'))
+
+            user_role = session.get('user_role')
+            normalized_role = 'kitchen_chef' if user_role == 'kitchen' else user_role
+            normalized_allowed = {'kitchen_chef' if role == 'kitchen' else role for role in allowed_roles}
+
+            if normalized_role not in normalized_allowed:
+                flash('You do not have permission to access that page.', 'danger')
+                return redirect(url_for('dashboard'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+@app.context_processor
+def inject_role_helpers():
+    return {'role_labels': ROLE_LABELS}
 
 # --- Dashboard & Activity Routes ---
 
@@ -167,7 +229,7 @@ def logout():
 # --- Order Routes ---
 
 @app.route('/orders')
-@login_required
+@role_required('admin', 'order_taker')
 def orders():
     status_filter = request.args.get('status')
     search_query = request.args.get('search')
@@ -207,7 +269,7 @@ def orders():
     return render_template('orders.html', orders=order_list, today=date.today())
 
 @app.route('/orders/new', methods=['GET', 'POST'])
-@login_required
+@role_required('admin', 'order_taker')
 def new_order():
     db = get_db()
     reorder_id = request.args.get('reorder')
@@ -286,7 +348,7 @@ def new_order():
     )
 
 @app.route('/orders/<int:id>')
-@login_required
+@role_required('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery')
 def order_detail(id):
     db = get_db()
     with db.cursor() as cursor:
@@ -331,7 +393,7 @@ def order_detail(id):
                            total_price=total_price, comments=comments)
 
 @app.route('/orders/<int:id>/invoice')
-@login_required
+@role_required('admin', 'order_taker')
 def order_invoice(id):
     db = get_db()
     with db.cursor() as cursor:
@@ -391,7 +453,7 @@ def order_invoice(id):
                            pdf_mode=False)
 
 @app.route('/orders/<int:id>/invoice/pdf')
-@login_required
+@role_required('admin', 'order_taker')
 def order_invoice_pdf(id):
     db = get_db()
     with db.cursor() as cursor:
@@ -453,7 +515,7 @@ def order_invoice_pdf(id):
     return response
 
 @app.route('/orders/<int:id>/status', methods=['POST'])
-@login_required
+@role_required('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery')
 def update_status(id):
     new_status = request.form.get('status')
     if not new_status:
@@ -471,10 +533,23 @@ def update_status(id):
             current_status = order['status']
             cust_name = order['customer_name']
             status_pipeline = ['received', 'logged', 'in_preparation', 'ready', 'delivered']
+
+            user_role = session.get('user_role')
+            normalized_role = 'kitchen_chef' if user_role == 'kitchen' else user_role
+            allowed_transitions = {
+                'order_taker': {'logged'},
+                'kitchen_chef': {'in_preparation', 'ready'},
+                'delivery': {'delivered'},
+                'admin': {'logged', 'in_preparation', 'ready', 'delivered'}
+            }
             
             if new_status not in status_pipeline:
                 flash('Invalid status.', 'danger')
                 return redirect(request.referrer or url_for('orders'))
+
+            if new_status not in allowed_transitions.get(normalized_role, set()):
+                flash('You do not have permission to move the order to that status.', 'danger')
+                return redirect(request.referrer or url_for('dashboard'))
             
             current_index = status_pipeline.index(current_status)
             new_index = status_pipeline.index(new_status)
@@ -502,7 +577,7 @@ def update_status(id):
     return redirect(request.referrer or url_for('orders'))
 
 @app.route('/orders/<int:id>/comment', methods=['POST'])
-@login_required
+@role_required('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery')
 def add_comment(id):
     comment_text = request.form.get('comment')
     if not comment_text:
@@ -530,7 +605,7 @@ def add_comment(id):
 # --- Kitchen & Delivery View ---
 
 @app.route('/kitchen')
-@login_required
+@role_required('admin', 'kitchen', 'kitchen_chef')
 def kitchen():
     db = get_db()
     with db.cursor() as cursor:
@@ -563,7 +638,7 @@ def kitchen():
     return render_template('kitchen.html', orders=orders, logged_count=logged_count, prep_count=prep_count, today=date.today(), now=datetime.now())
 
 @app.route('/delivery')
-@login_required
+@role_required('admin', 'delivery')
 def delivery():
     db = get_db()
     with db.cursor() as cursor:
@@ -582,7 +657,7 @@ def delivery():
 # --- Customer Routes ---
 
 @app.route('/customers')
-@login_required
+@role_required('admin', 'order_taker')
 def customers():
     db = get_db()
     with db.cursor() as cursor:
@@ -598,7 +673,7 @@ def customers():
     return render_template('customers.html', customers=cust_list)
 
 @app.route('/customers/<int:id>')
-@login_required
+@role_required('admin', 'order_taker')
 def customer_detail(id):
     db = get_db()
     with db.cursor() as cursor:
@@ -623,7 +698,7 @@ def customer_detail(id):
     return render_template('customer_detail.html', customer=customer, history=history)
 
 @app.route('/customers/<int:id>/delete', methods=['POST'])
-@login_required
+@role_required('admin')
 def delete_customer(id):
     db = get_db()
     try:
@@ -654,7 +729,7 @@ def delete_customer(id):
 # --- Existing Product, Summary, Picklist ---
 
 @app.route('/products')
-@login_required
+@role_required('admin')
 def products():
     db = get_db()
     with db.cursor() as cursor:
@@ -663,7 +738,7 @@ def products():
     return render_template('products.html', products=product_list)
 
 @app.route('/products/new', methods=['GET', 'POST'])
-@login_required
+@role_required('admin')
 def new_product():
     if request.method == 'POST':
         name = request.form.get('name')
@@ -684,7 +759,7 @@ def new_product():
     return render_template('product_form.html', product=None)
 
 @app.route('/products/<int:id>/edit', methods=['GET', 'POST'])
-@login_required
+@role_required('admin')
 def edit_product(id):
     db = get_db()
     if request.method == 'POST':
@@ -709,7 +784,7 @@ def edit_product(id):
     return render_template('product_form.html', product=product)
 
 @app.route('/summary')
-@login_required
+@role_required('admin')
 def summary():
     today_val = date.today()
     db = get_db()
@@ -730,7 +805,7 @@ def summary():
     return render_template('summary.html', due_today=due_today, overdue=overdue, in_prep=in_prep, delivered_today=delivered_today, today_orders=today_orders)
 
 @app.route('/picklist')
-@login_required
+@role_required('admin', 'kitchen', 'kitchen_chef')
 def picklist():
     db = get_db()
     with db.cursor() as cursor:
@@ -744,7 +819,7 @@ def picklist():
     return render_template('picklist.html', items=items, today=date.today())
 
 @app.route('/customers/new', methods=['POST'])
-@login_required
+@role_required('admin', 'order_taker')
 def new_customer():
     name = request.form.get('name')
     phone = request.form.get('phone')
@@ -773,6 +848,50 @@ def new_customer():
             return {"status": "error", "message": str(e)}, 400
         flash(f'Error adding customer: {str(e)}', 'danger')
         return redirect(url_for('customers'))
+
+@app.route('/admin/users', methods=['GET', 'POST'])
+@role_required('admin')
+def admin_users():
+    db = get_db()
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        role = request.form.get('role')
+
+        if not name or not email or not password or role not in ROLE_LABELS:
+            flash('Please fill in all fields correctly.', 'danger')
+            return redirect(url_for('admin_users'))
+
+        try:
+            with db.cursor() as cursor:
+                cursor.execute("SELECT id FROM staff WHERE email = %s", (email,))
+                if cursor.fetchone():
+                    flash('A user with that email already exists.', 'warning')
+                    return redirect(url_for('admin_users'))
+
+                cursor.execute(
+                    "INSERT INTO staff (name, email, password_hash, role) VALUES (%s, %s, %s, %s)",
+                    (name, email, generate_password_hash(password), role)
+                )
+                db.commit()
+                flash(f'{ROLE_LABELS[role]} account created successfully.', 'success')
+                return redirect(url_for('admin_users'))
+        except Exception as e:
+            db.rollback()
+            flash(f'Error creating user: {str(e)}', 'danger')
+            return redirect(url_for('admin_users'))
+
+    with db.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, name, email, role
+            FROM staff
+            ORDER BY FIELD(role, 'admin', 'order_taker', 'kitchen_chef', 'kitchen', 'delivery'), name
+        """)
+        staff_users = cursor.fetchall()
+
+    return render_template('admin_users.html', staff_users=staff_users)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

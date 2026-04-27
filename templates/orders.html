@@ -94,7 +94,7 @@
                                 <i class="bi bi-receipt"></i>
                             </a>
                             
-                            {% if order.status == 'received' %}
+                            {% if order.status == 'received' and session.user_role in ['admin', 'order_taker'] %}
                                 <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
                                     <input type="hidden" name="status" value="logged">
                                     <button type="button" class="btn btn-sm btn-secondary"
@@ -104,7 +104,7 @@
                                         Log Order
                                     </button>
                                 </form>
-                            {% elif order.status == 'logged' %}
+                            {% elif order.status == 'logged' and session.user_role == 'admin' %}
                                 <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
                                     <input type="hidden" name="status" value="in_preparation">
                                     <button type="button" class="btn btn-sm btn-warning"
@@ -114,7 +114,7 @@
                                         Start Prep
                                     </button>
                                 </form>
-                            {% elif order.status == 'in_preparation' %}
+                            {% elif order.status == 'in_preparation' and session.user_role == 'admin' %}
                                 <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
                                     <input type="hidden" name="status" value="ready">
                                     <button type="button" class="btn btn-sm btn-info text-white"
@@ -124,7 +124,7 @@
                                         Mark Ready
                                     </button>
                                 </form>
-                            {% elif order.status == 'ready' %}
+                            {% elif order.status == 'ready' and session.user_role == 'admin' %}
                                 <form id="form-status-{{ order.id }}" action="{{ url_for('update_status', id=order.id) }}" method="POST">
                                     <input type="hidden" name="status" value="delivered">
                                     <button type="button" class="btn btn-sm btn-success"

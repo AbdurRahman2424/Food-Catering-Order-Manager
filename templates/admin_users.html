@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}Staff Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-person-badge me-2"></i>Staff Management</h2>
+        <p class="text-muted mb-0">Create role-based accounts for order taking, kitchen, and delivery staff.</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold py-3">Add Staff User</div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Full Name</label>
+                        <input type="text" name="name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" name="email" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <input type="password" name="password" class="form-control" required minlength="6">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Role</label>
+                        <select name="role" class="form-select" required>
+                            <option value="">-- Select Role --</option>
+                            <option value="order_taker">Order Taker</option>
+                            <option value="kitchen_chef">Kitchen Chef</option>
+                            <option value="delivery">Delivery</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-person-plus me-1"></i>Create User
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mt-4">
+            <div class="card-header bg-white fw-bold py-3">Role Access</div>
+            <div class="card-body small">
+                <div class="mb-3">
+                    <strong>Order Taker</strong><br>
+                    Create orders, manage customers, view receipts.
+                </div>
+                <div class="mb-3">
+                    <strong>Kitchen Chef</strong><br>
+                    Access the kitchen board, pick list, and preparation status updates.
+                </div>
+                <div class="mb-0">
+                    <strong>Delivery</strong><br>
+                    Access delivery orders and mark ready orders as delivered.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold py-3">Current Staff</div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in staff_users %}
+                        <tr>
+                            <td class="fw-bold">{{ user.name }}</td>
+                            <td>{{ user.email }}</td>
+                            <td><span class="badge bg-secondary">{{ role_labels.get(user.role, user.role) }}</span></td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="text-center py-4 text-muted">No staff users found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

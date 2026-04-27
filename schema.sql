@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS staff (
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('admin', 'kitchen', 'delivery') NOT NULL
+    role ENUM('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery') NOT NULL
 );
 
 -- Orders table
