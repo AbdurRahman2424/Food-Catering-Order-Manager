@@ -811,6 +811,7 @@ def order_invoice(id):
 def order_invoice_pdf(id):
     return redirect(url_for('order_invoice', id=id))
 
+
 @app.route('/orders/<int:id>/receipt', methods=['POST'])
 @role_required('admin', 'order_taker')
 def update_receipt(id):
@@ -1426,3 +1427,4 @@ def admin_api_key_test():
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+#test
