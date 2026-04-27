@@ -67,6 +67,22 @@ CREATE TABLE IF NOT EXISTS order_comments (
     FOREIGN KEY (staff_id) REFERENCES staff(id)
 );
 
+-- Invoices / Receipts table
+CREATE TABLE IF NOT EXISTS invoices (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL UNIQUE,
+    invoice_number VARCHAR(50) NOT NULL UNIQUE,
+    generated_by INT NOT NULL,
+    payment_status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid',
+    payment_method VARCHAR(50),
+    amount_paid DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    paid_at DATETIME NULL,
+    receipt_notes TEXT,
+    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (generated_by) REFERENCES staff(id)
+);
+
 -- AI Daily Reports table
 CREATE TABLE IF NOT EXISTS ai_daily_reports (
     id INT AUTO_INCREMENT PRIMARY KEY,

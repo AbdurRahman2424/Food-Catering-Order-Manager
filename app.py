@@ -25,6 +25,7 @@ ROLE_LABELS = {
 }
 STAFF_ROLE_MIGRATION_CHECKED = False
 AI_REPORTS_TABLE_CHECKED = False
+INVOICES_TABLE_CHECKED = False
 
 # Database connection helper
 def get_db():
@@ -37,6 +38,7 @@ def get_db():
             cursorclass=pymysql.cursors.DictCursor
         )
         ensure_staff_role_enum(g.db)
+        ensure_invoices_table(g.db)
         ensure_ai_reports_table(g.db)
     return g.db
 
@@ -93,6 +95,55 @@ def ensure_ai_reports_table(db):
     finally:
         AI_REPORTS_TABLE_CHECKED = True
 
+def ensure_invoices_table(db):
+    global INVOICES_TABLE_CHECKED
+    if INVOICES_TABLE_CHECKED:
+        return
+
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS invoices (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    order_id INT NOT NULL UNIQUE,
+                    invoice_number VARCHAR(50) NOT NULL UNIQUE,
+                    generated_by INT NOT NULL,
+                    payment_status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid',
+                    payment_method VARCHAR(50) NULL,
+                    amount_paid DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                    paid_at DATETIME NULL,
+                    receipt_notes TEXT NULL,
+                    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+                    FOREIGN KEY (generated_by) REFERENCES staff(id)
+                )
+            """)
+
+            cursor.execute("""
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'invoices'
+            """, (app.config['MYSQL_DB'],))
+            existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
+
+            required_columns = {
+                'payment_status': "ALTER TABLE invoices ADD COLUMN payment_status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid'",
+                'payment_method': "ALTER TABLE invoices ADD COLUMN payment_method VARCHAR(50) NULL",
+                'amount_paid': "ALTER TABLE invoices ADD COLUMN amount_paid DECIMAL(10, 2) NOT NULL DEFAULT 0.00",
+                'paid_at': "ALTER TABLE invoices ADD COLUMN paid_at DATETIME NULL",
+                'receipt_notes': "ALTER TABLE invoices ADD COLUMN receipt_notes TEXT NULL"
+            }
+
+            for column_name, sql in required_columns.items():
+                if column_name not in existing_columns:
+                    cursor.execute(sql)
+
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        INVOICES_TABLE_CHECKED = True
+
 @app.teardown_appcontext
 def close_db(error):
     if hasattr(g, 'db'):
@@ -146,6 +197,24 @@ def sync_runtime_config_from_env():
     for key in DEFAULT_ENV_VALUES:
         app.config[key] = env_values.get(key, DEFAULT_ENV_VALUES[key])
 
+def get_or_create_invoice(db, order_id):
+    with db.cursor() as cursor:
+        cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (order_id,))
+        invoice = cursor.fetchone()
+
+        if invoice:
+            return invoice
+
+        year = datetime.now().year
+        invoice_number = f"INV-{year}-{order_id:05d}"
+        cursor.execute(
+            "INSERT INTO invoices (order_id, invoice_number, generated_by) VALUES (%s, %s, %s)",
+            (order_id, invoice_number, session['user_id'])
+        )
+        db.commit()
+        cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (order_id,))
+        return cursor.fetchone()
+
 def call_chat_provider(url, headers, payload):
     req = urllib_request.Request(
         url,
@@ -164,7 +233,7 @@ def get_ai_provider_configs():
             'provider': 'Groq',
             'api_key': app.config.get('GROQ_API_KEY_1'),
             'model': app.config.get('GROQ_MODEL'),
-            'url': 'https://api.groq.com/openai/v1/chat/completions',
+            'url': 'https://api.groq.com/openai/v1',
             'headers': lambda key: {
                 'Authorization': f'Bearer {key}',
                 'Content-Type': 'application/json'
@@ -174,7 +243,7 @@ def get_ai_provider_configs():
             'provider': 'Groq',
             'api_key': app.config.get('GROQ_API_KEY_2'),
             'model': app.config.get('GROQ_MODEL'),
-            'url': 'https://api.groq.com/openai/v1/chat/completions',
+            'url': 'https://api.groq.com/openai/v1',
             'headers': lambda key: {
                 'Authorization': f'Bearer {key}',
                 'Content-Type': 'application/json'
@@ -625,35 +694,25 @@ def order_detail(id):
         
         total_price = sum(item['quantity'] * item['unit_price'] for item in items)
         
+        invoice = get_or_create_invoice(db, id)
+        balance_due = max(total_price - float(invoice.get('amount_paid', 0) or 0), 0)
+
     return render_template('order_detail.html', order=order, items=items, 
-                           total_price=total_price, comments=comments)
+                           total_price=total_price, comments=comments,
+                           invoice=invoice, balance_due=balance_due)
 
 @app.route('/orders/<int:id>/invoice')
 @role_required('admin', 'order_taker')
 def order_invoice(id):
     db = get_db()
-    with db.cursor() as cursor:
-        # 1. Check if invoice exists, if not create it
-        cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
-        invoice = cursor.fetchone()
-        
-        if not invoice:
-            year = datetime.now().year
-            invoice_number = f"INV-{year}-{id:05d}"
-            try:
-                cursor.execute(
-                    "INSERT INTO invoices (order_id, invoice_number, generated_by) VALUES (%s, %s, %s)",
-                    (id, invoice_number, session['user_id'])
-                )
-                db.commit()
-                cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
-                invoice = cursor.fetchone()
-            except Exception as e:
-                db.rollback()
-                flash(f"Error generating invoice record: {str(e)}", "danger")
-                return redirect(url_for('order_detail', id=id))
+    try:
+        invoice = get_or_create_invoice(db, id)
+    except Exception as e:
+        db.rollback()
+        flash(f"Error generating invoice record: {str(e)}", "danger")
+        return redirect(url_for('order_detail', id=id))
 
-        # 2. Get all data for template
+    with db.cursor() as cursor:
         sql_order = """
             SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, 
                    c.email AS customer_email, c.address AS customer_address,
@@ -679,35 +738,25 @@ def order_invoice(id):
         cursor.execute(sql_items, (id,))
         items = cursor.fetchall()
         total_price = sum(item['quantity'] * item['unit_price'] for item in items)
+        balance_due = max(total_price - float(invoice.get('amount_paid', 0) or 0), 0)
         
     return render_template('invoice.html', 
                            order=order, 
                            items=items, 
                            total_price=total_price, 
+                           invoice=invoice,
                            invoice_number=invoice['invoice_number'],
                            generated_at=invoice['generated_at'],
+                           balance_due=balance_due,
                            pdf_mode=False)
 
 @app.route('/orders/<int:id>/invoice/pdf')
 @role_required('admin', 'order_taker')
 def order_invoice_pdf(id):
     db = get_db()
-    with db.cursor() as cursor:
-        cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
-        invoice = cursor.fetchone()
-        
-        if not invoice:
-            # Create if doesn't exist (e.g. direct link)
-            year = datetime.now().year
-            invoice_number = f"INV-{year}-{id:05d}"
-            cursor.execute(
-                "INSERT INTO invoices (order_id, invoice_number, generated_by) VALUES (%s, %s, %s)",
-                (id, invoice_number, session['user_id'])
-            )
-            db.commit()
-            cursor.execute("SELECT * FROM invoices WHERE order_id = %s", (id,))
-            invoice = cursor.fetchone()
+    invoice = get_or_create_invoice(db, id)
 
+    with db.cursor() as cursor:
         sql_order = """
             SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, 
                    c.email AS customer_email, c.address AS customer_address,
@@ -729,13 +778,16 @@ def order_invoice_pdf(id):
         cursor.execute(sql_items, (id,))
         items = cursor.fetchall()
         total_price = sum(item['quantity'] * item['unit_price'] for item in items)
+        balance_due = max(total_price - float(invoice.get('amount_paid', 0) or 0), 0)
 
     html_string = render_template('invoice.html', 
                                  order=order, 
                                  items=items, 
                                  total_price=total_price, 
+                                 invoice=invoice,
                                  invoice_number=invoice['invoice_number'],
                                  generated_at=invoice['generated_at'],
+                                 balance_due=balance_due,
                                  pdf_mode=True)
     
     pdf_buffer = io.BytesIO()
@@ -749,6 +801,58 @@ def order_invoice_pdf(id):
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = f'attachment; filename=Invoice-{invoice["invoice_number"]}.pdf'
     return response
+
+@app.route('/orders/<int:id>/receipt', methods=['POST'])
+@role_required('admin', 'order_taker')
+def update_receipt(id):
+    db = get_db()
+
+    payment_method = request.form.get('payment_method', '').strip() or None
+    receipt_notes = request.form.get('receipt_notes', '').strip() or None
+
+    try:
+        amount_paid = float(request.form.get('amount_paid', '0') or 0)
+    except ValueError:
+        flash('Amount paid must be a valid number.', 'danger')
+        return redirect(url_for('order_invoice', id=id))
+
+    if amount_paid < 0:
+        flash('Amount paid cannot be negative.', 'danger')
+        return redirect(url_for('order_invoice', id=id))
+
+    try:
+        invoice = get_or_create_invoice(db, id)
+        with db.cursor() as cursor:
+            cursor.execute("SELECT COALESCE(SUM(quantity * unit_price), 0) AS total_price FROM order_items WHERE order_id = %s", (id,))
+            total_price = float(cursor.fetchone()['total_price'] or 0)
+
+        if amount_paid <= 0:
+            payment_status = 'unpaid'
+        elif amount_paid >= total_price:
+            payment_status = 'paid'
+        else:
+            payment_status = 'partial'
+
+        paid_at = datetime.now() if amount_paid > 0 else None
+
+        with db.cursor() as cursor:
+            cursor.execute("""
+                UPDATE invoices
+                SET payment_status = %s,
+                    payment_method = %s,
+                    amount_paid = %s,
+                    paid_at = %s,
+                    receipt_notes = %s
+                WHERE order_id = %s
+            """, (payment_status, payment_method, amount_paid, paid_at, receipt_notes, id))
+            db.commit()
+
+        flash(f"Receipt {invoice['invoice_number']} updated successfully.", 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error updating receipt: {str(e)}', 'danger')
+
+    return redirect(url_for('order_invoice', id=id))
 
 @app.route('/orders/<int:id>/status', methods=['POST'])
 @role_required('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery')

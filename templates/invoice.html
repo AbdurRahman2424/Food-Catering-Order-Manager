@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice - {{ invoice_number }}</title>
-    <!-- Load Bootstrap 5 via CDN for basic styles, but we will use tables for layout -->
+    <title>Receipt - {{ invoice_number }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         @page {
@@ -13,7 +12,7 @@
         }
         body {
             background-color: #fff;
-            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-family: Helvetica, Arial, sans-serif;
             color: #333;
         }
         .invoice-container {
@@ -37,7 +36,7 @@
         }
         .table thead th {
             background-color: #0d6efd !important;
-            color: white !important;
+            color: #fff !important;
             border: none;
         }
         .bill-to-section {
@@ -54,7 +53,6 @@
             color: #adb5bd;
             font-size: 9pt;
         }
-        /* xhtml2pdf fixes */
         .layout-table {
             width: 100%;
             border: 0;
@@ -63,9 +61,6 @@
         .layout-table td {
             vertical-align: top;
             border: 0;
-        }
-        .border-radius-0 {
-            border-radius: 0 !important;
         }
         @media print {
             .no-print {
@@ -87,7 +82,6 @@
 {% endif %}
 
 <div class="invoice-container">
-    <!-- Header Table -->
     <table class="layout-table mb-4">
         <tr>
             <td width="60%">
@@ -101,9 +95,9 @@
                 </div>
             </td>
             <td width="40%" style="text-align: right;">
-                <h1 class="header-title">INVOICE</h1>
+                <h1 class="header-title">RECEIPT</h1>
                 <div style="margin-top: 10px; font-size: 11pt;">
-                    <div style="font-weight: bold;">Invoice #: <span class="text-blue">{{ invoice_number }}</span></div>
+                    <div style="font-weight: bold;">Receipt #: <span class="text-blue">{{ invoice_number }}</span></div>
                     <div>Issue Date: {{ generated_at.strftime('%B %d, %Y') }}</div>
                     <div>Due Date: {{ order.delivery_date.strftime('%B %d, %Y') }}</div>
                 </div>
@@ -113,7 +107,6 @@
 
     <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
 
-    <!-- Bill To & Order Info Table -->
     <table class="layout-table mb-4">
         <tr>
             <td width="50%" style="padding-right: 20px;">
@@ -128,7 +121,7 @@
                 </div>
             </td>
             <td width="50%" style="padding-left: 20px;">
-                <div style="color: #6c757d; text-transform: uppercase; font-size: 9pt; font-weight: bold; margin-bottom: 10px;">Order Information:</div>
+                <div style="color: #6c757d; text-transform: uppercase; font-size: 9pt; font-weight: bold; margin-bottom: 10px;">Receipt Information:</div>
                 <table class="layout-table" style="font-size: 10pt;">
                     <tr>
                         <td width="40%" style="font-weight: bold; padding-bottom: 3px;">Order ID:</td>
@@ -147,18 +140,25 @@
                         <td style="padding-bottom: 3px;">{{ order.staff_name }}</td>
                     </tr>
                     <tr>
-                        <td style="font-weight: bold;">Status:</td>
-                        <td><span style="background-color: #0d6efd; color: white; padding: 2px 6px; font-size: 8pt; text-transform: uppercase; font-weight: bold;">{{ order.status|replace('_', ' ') }}</span></td>
+                        <td style="font-weight: bold; padding-bottom: 3px;">Order Status:</td>
+                        <td style="padding-bottom: 3px;">{{ order.status|replace('_', ' ')|capitalize }}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; padding-bottom: 3px;">Payment Status:</td>
+                        <td style="padding-bottom: 3px;">{{ invoice.payment_status|capitalize }}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold;">Payment Method:</td>
+                        <td>{{ invoice.payment_method or 'Not recorded' }}</td>
                     </tr>
                 </table>
             </td>
         </tr>
     </table>
 
-    <!-- Items Table -->
     <table class="table table-striped" style="width: 100%; font-size: 10pt;">
         <thead>
-            <tr style="background-color: #0d6efd; color: white;">
+            <tr>
                 <th width="5%" style="padding: 8px;">#</th>
                 <th width="45%" style="padding: 8px;">Product Name</th>
                 <th width="10%" style="padding: 8px;">Unit</th>
@@ -174,14 +174,13 @@
                 <td style="font-weight: bold; padding: 8px;">{{ item.product_name }}</td>
                 <td style="padding: 8px;">{{ item.unit }}</td>
                 <td style="text-align: center; padding: 8px;">{{ item.quantity }}</td>
-                <td style="text-align: right; padding: 8px;">£{{ "%.2f"|format(item.unit_price) }}</td>
-                <td style="text-align: right; padding: 8px;">£{{ "%.2f"|format(item.quantity * item.unit_price) }}</td>
+                <td style="text-align: right; padding: 8px;">${{ "%.2f"|format(item.unit_price) }}</td>
+                <td style="text-align: right; padding: 8px;">${{ "%.2f"|format(item.quantity * item.unit_price) }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 
-    <!-- Totals Table -->
     <table class="layout-table mb-4">
         <tr>
             <td width="60%"></td>
@@ -189,36 +188,82 @@
                 <table class="layout-table">
                     <tr>
                         <td style="text-align: right; font-weight: bold; padding: 5px;">Subtotal:</td>
-                        <td style="text-align: right; padding: 5px;">£{{ "%.2f"|format(total_price) }}</td>
+                        <td style="text-align: right; padding: 5px;">${{ "%.2f"|format(total_price) }}</td>
                     </tr>
                     <tr>
                         <td style="text-align: right; font-weight: bold; padding: 5px;">Tax (0%):</td>
-                        <td style="text-align: right; padding: 5px;">£0.00</td>
+                        <td style="text-align: right; padding: 5px;">$0.00</td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: right; font-weight: bold; padding: 5px;">Paid:</td>
+                        <td style="text-align: right; padding: 5px;">${{ "%.2f"|format(invoice.amount_paid or 0) }}</td>
+                    </tr>
+                    <tr>
+                        <td style="text-align: right; font-weight: bold; padding: 5px;">Balance Due:</td>
+                        <td style="text-align: right; padding: 5px;">${{ "%.2f"|format(balance_due or 0) }}</td>
                     </tr>
                     <tr>
                         <td colspan="2"><hr style="border: 0; border-top: 1px solid #eee; margin: 5px 0;"></td>
                     </tr>
                     <tr class="total-row">
                         <td style="text-align: right; padding: 5px;">TOTAL:</td>
-                        <td style="text-align: right; padding: 5px;">£{{ "%.2f"|format(total_price) }}</td>
+                        <td style="text-align: right; padding: 5px;">${{ "%.2f"|format(total_price) }}</td>
                     </tr>
                 </table>
             </td>
         </tr>
     </table>
 
-    <!-- Notes -->
+    {% if not pdf_mode %}
+    <div class="no-print" style="margin-bottom: 30px;">
+        <div style="color: #6c757d; text-transform: uppercase; font-size: 9pt; font-weight: bold; margin-bottom: 10px;">Receipt & Payment Tracking:</div>
+        <form action="{{ url_for('update_receipt', id=order.id) }}" method="POST" class="border rounded p-3" style="background-color: #f8f9fa;">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Payment Status</label>
+                    <select name="payment_status" class="form-select">
+                        <option value="unpaid" {% if invoice.payment_status == 'unpaid' %}selected{% endif %}>Unpaid</option>
+                        <option value="partial" {% if invoice.payment_status == 'partial' %}selected{% endif %}>Partial</option>
+                        <option value="paid" {% if invoice.payment_status == 'paid' %}selected{% endif %}>Paid</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Amount Paid</label>
+                    <input type="number" step="0.01" min="0" name="amount_paid" class="form-control" value="{{ '%.2f'|format(invoice.amount_paid or 0) }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Payment Method</label>
+                    <input type="text" name="payment_method" class="form-control" value="{{ invoice.payment_method or '' }}" placeholder="Cash, bank transfer, card">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Receipt Notes</label>
+                    <textarea name="receipt_notes" class="form-control" rows="3" placeholder="Reference number, payment comments...">{{ invoice.receipt_notes or '' }}</textarea>
+                </div>
+                <div class="col-12 text-end">
+                    <button type="submit" class="btn btn-primary">Save Receipt Details</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
     {% if order.notes %}
     <div style="margin-bottom: 30px;">
-        <div style="color: #6c757d; text-transform: uppercase; font-size: 9pt; font-weight: bold; margin-bottom: 5px;">Notes:</div>
+        <div style="color: #6c757d; text-transform: uppercase; font-size: 9pt; font-weight: bold; margin-bottom: 5px;">Order Notes:</div>
         <div style="background-color: #f8f9fa; padding: 10px; font-size: 10pt;">{{ order.notes }}</div>
     </div>
     {% endif %}
 
-    <!-- Footer -->
+    {% if invoice.receipt_notes %}
+    <div style="margin-bottom: 30px;">
+        <div style="color: #6c757d; text-transform: uppercase; font-size: 9pt; font-weight: bold; margin-bottom: 5px;">Receipt Notes:</div>
+        <div style="background-color: #f8f9fa; padding: 10px; font-size: 10pt;">{{ invoice.receipt_notes }}</div>
+    </div>
+    {% endif %}
+
     <div style="text-align: center; margin-top: 40px;">
         <p style="font-weight: bold; margin-bottom: 5px;">Thank you for choosing FreshPlate Co.</p>
-        <p class="footer-text">Invoice {{ invoice_number }} | Generated on {{ generated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        <p class="footer-text">Receipt {{ invoice_number }} | Generated on {{ generated_at.strftime('%Y-%m-%d %H:%M') }}</p>
     </div>
 </div>
 
