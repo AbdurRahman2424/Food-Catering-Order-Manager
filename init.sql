@@ -1,0 +1,95 @@
+-- Database Schema for Food & Catering Order Manager
+
+CREATE DATABASE IF NOT EXISTS catering_db;
+USE catering_db;
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(20),
+    email VARCHAR(255),
+    address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    unit VARCHAR(50) NOT NULL,
+    price_per_unit DECIMAL(10, 2) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS staff (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery') NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    delivery_date DATE NOT NULL,
+    status ENUM('received', 'logged', 'in_preparation', 'ready', 'delivered') DEFAULT 'received',
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (staff_id) REFERENCES staff(id)
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity DECIMAL(10, 2) NOT NULL,
+    unit_price DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+CREATE TABLE IF NOT EXISTS order_comments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    comment TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (staff_id) REFERENCES staff(id)
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL UNIQUE,
+    invoice_number VARCHAR(50) NOT NULL UNIQUE,
+    generated_by INT NOT NULL,
+    payment_status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid',
+    payment_method VARCHAR(50),
+    amount_paid DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    paid_at DATETIME NULL,
+    receipt_notes TEXT,
+    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (generated_by) REFERENCES staff(id)
+);
+
+CREATE TABLE IF NOT EXISTS ai_daily_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    report_date DATE NOT NULL UNIQUE,
+    summary_text TEXT NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    model_name VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO staff (name, email, password_hash, role) VALUES
+('Admin User', 'admin@catering.com', 'scrypt:32768:8:1$vT0S3mI69GZ6BqN3$605a666e3820245a9a4b5d6e2c347f3a605a666e3820245a9a4b5d6e2c347f3a', 'admin');
+
+INSERT INTO products (name, description, unit, price_per_unit, is_active) VALUES
+('Chicken Biryani', 'Fragrant basmati rice with spiced chicken', 'tray', 45.00, 1),
+('Vegetable Samosas', 'Crispy pastry filled with spiced vegetables', 'box', 20.00, 1),
+('Greek Salad', 'Fresh greens, olives, feta, and vinaigrette', 'kg', 15.00, 1);

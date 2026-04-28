@@ -3,7 +3,7 @@ import pymysql.cursors
 from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from datetime import datetime, date, timedelta
-from config import Config, ENV_FILE_PATH, DEFAULT_ENV_VALUES, load_env_file, get_env_value
+from config import Config, ENV_FILE_PATH, DEFAULT_ENV_VALUES, load_env_file, get_env_value, invalidate_env_cache
 from flask_socketio import SocketIO, emit
 
 
@@ -32,6 +32,7 @@ def get_db():
     if 'db' not in g:
         g.db = pymysql.connect(
             host=app.config['MYSQL_HOST'],
+            port=int(app.config['MYSQL_PORT']),
             user=app.config['MYSQL_USER'],
             password=app.config['MYSQL_PASSWORD'],
             database=app.config['MYSQL_DB'],
@@ -190,6 +191,7 @@ def update_env_file(updates):
     lines = [f'{key}={env_values.get(key, "")}' for key in DEFAULT_ENV_VALUES]
     with open(ENV_FILE_PATH, 'w', encoding='utf-8') as env_file:
         env_file.write('\n'.join(lines) + '\n')
+    invalidate_env_cache()
 
 def sync_runtime_config_from_env():
     for key in DEFAULT_ENV_VALUES:

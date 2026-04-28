@@ -18,6 +18,12 @@ DEFAULT_ENV_VALUES = {
     'OPENROUTER_MODEL': 'openai/gpt-4.1-mini'
 }
 
+_ENV_FILE_CACHE = None
+
+def invalidate_env_cache():
+    global _ENV_FILE_CACHE
+    _ENV_FILE_CACHE = None
+
 def ensure_env_file():
     if os.path.exists(ENV_FILE_PATH):
         return
@@ -27,8 +33,13 @@ def ensure_env_file():
         env_file.write('\n'.join(lines) + '\n')
 
 def load_env_file():
+    global _ENV_FILE_CACHE
+    if _ENV_FILE_CACHE is not None:
+        return _ENV_FILE_CACHE.copy()
+
     env_values = {}
     if not os.path.exists(ENV_FILE_PATH):
+        _ENV_FILE_CACHE = {}
         return env_values
 
     with open(ENV_FILE_PATH, 'r', encoding='utf-8') as env_file:
@@ -39,6 +50,7 @@ def load_env_file():
             key, value = line.split('=', 1)
             env_values[key.strip()] = value.strip()
 
+    _ENV_FILE_CACHE = env_values.copy()
     return env_values
 
 def get_env_value(key):
