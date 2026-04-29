@@ -127,6 +127,9 @@ def ensure_invoices_table(db):
             """, (app.config['MYSQL_DB'],))
             existing_columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
 
+            # These are columns added after the initial table was created.
+            # Each entry is checked individually so that old deployments
+            # without these columns get them added automatically on startup.
             required_columns = {
                 'payment_status': "ALTER TABLE invoices ADD COLUMN payment_status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid'",
                 'payment_method': "ALTER TABLE invoices ADD COLUMN payment_method VARCHAR(50) NULL",
@@ -169,6 +172,8 @@ def role_required(*allowed_roles):
                 return redirect(url_for('login'))
 
             user_role = session.get('user_role')
+            # 'kitchen' and 'kitchen_chef' are treated as the same role for access checks.
+            # The DB stores both values, but permission-wise they share identical access rights.
             normalized_role = 'kitchen_chef' if user_role == 'kitchen' else user_role
             normalized_allowed = {'kitchen_chef' if role == 'kitchen' else role for role in allowed_roles}
 
@@ -420,6 +425,10 @@ Top orders today: {json.dumps(metrics['top_orders'])}
         'temperature': 0.4
     }
 
+    # Try each configured provider in order (Groq key 1 → Groq key 2 → OpenRouter key 1 → …).
+    # As soon as one succeeds, return its result immediately.
+    # If a provider fails (network error, bad key, quota exceeded), collect the error
+    # and try the next one instead of giving up straight away.
     for provider in get_ai_provider_configs():
         api_key = provider['api_key']
         if not api_key:
@@ -442,6 +451,7 @@ Top orders today: {json.dumps(metrics['top_orders'])}
         except (urllib_error.HTTPError, urllib_error.URLError, KeyError, IndexError, json.JSONDecodeError) as e:
             provider_errors.append(f"{provider['provider']} ({provider['model']}): {str(e)}")
 
+    # All providers were either unconfigured or returned errors — surface everything to the caller.
     raise RuntimeError("All AI providers failed. " + " | ".join(provider_errors) if provider_errors else "No AI provider API keys are configured.")
 
 def save_ai_daily_summary(report_date, summary_data):
@@ -882,17 +892,20 @@ def update_status(id):
             
             current_status = order['status']
             cust_name = order['customer_name']
+            # Orders must move forward through this pipeline — no skipping ahead or going backwards.
             status_pipeline = ['received', 'logged', 'in_preparation', 'ready', 'delivered']
 
             user_role = session.get('user_role')
             normalized_role = 'kitchen_chef' if user_role == 'kitchen' else user_role
+            # Each role can only push an order to specific statuses; this prevents e.g.
+            # a delivery driver from marking an order as 'in_preparation'.
             allowed_transitions = {
                 'order_taker': {'logged'},
                 'kitchen_chef': {'in_preparation', 'ready'},
                 'delivery': {'delivered'},
                 'admin': {'logged', 'in_preparation', 'ready', 'delivered'}
             }
-            
+
             if new_status not in status_pipeline:
                 flash('Invalid status.', 'danger')
                 return redirect(request.referrer or url_for('orders'))
@@ -900,10 +913,11 @@ def update_status(id):
             if new_status not in allowed_transitions.get(normalized_role, set()):
                 flash('You do not have permission to move the order to that status.', 'danger')
                 return redirect(request.referrer or url_for('dashboard'))
-            
+
+            # Compare positions in the pipeline list to enforce forward-only movement.
             current_index = status_pipeline.index(current_status)
             new_index = status_pipeline.index(new_status)
-            
+
             if new_index <= current_index:
                 flash('Cannot move status backwards.', 'danger')
                 return redirect(request.referrer or url_for('orders'))
@@ -975,6 +989,9 @@ def kitchen():
         for order in orders:
             items = []
             if order['items_info']:
+                # items_info is a single string built by MySQL's GROUP_CONCAT, e.g.:
+                #   "Biryani||10||kg;;Naan||50||pcs"
+                # We split on ';;' to get each item, then on '||' to get its fields.
                 for item_str in order['items_info'].split(';;'):
                     parts = item_str.split('||')
                     items.append({'product_name': parts[0], 'quantity': parts[1], 'unit': parts[2]})
