@@ -1,3 +1,9 @@
 .env
 __pycache__/
 *.pyc
+
+# Obsidian & AI session memory (local only, not for teammates)
+CLAUDE.md
+CLAUDE-Archive.md
+.obsidian/
+CC-Session-Logs/
