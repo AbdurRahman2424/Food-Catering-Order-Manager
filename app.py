@@ -280,6 +280,58 @@ def get_ai_provider_configs():
         }
     ]
 
+def run_api_key_chain_test():
+    results = []
+    test_payload_base = {
+        'messages': [
+            {'role': 'system', 'content': 'You are a health check endpoint.'},
+            {'role': 'user', 'content': 'Reply with exactly OK'}
+        ],
+        'temperature': 0
+    }
+
+    for provider in get_ai_provider_configs():
+        api_key = (provider.get('api_key') or '').strip()
+        result = {
+            'key_label': provider.get('key_label', provider['provider']),
+            'provider': provider['provider'],
+            'model': provider['model'],
+            'configured': bool(api_key),
+            'status': 'skipped',
+            'message': 'API key is empty.'
+        }
+
+        if not api_key:
+            results.append(result)
+            continue
+
+        payload = dict(test_payload_base)
+        payload['model'] = provider['model']
+
+        try:
+            response_text = call_chat_provider(
+                provider['url'],
+                provider['headers'](api_key),
+                payload
+            )
+            result['status'] = 'passed'
+            result['message'] = (response_text or 'OK')[:200]
+        except urllib_error.HTTPError as e:
+            error_body = ''
+            try:
+                error_body = e.read().decode('utf-8', errors='replace')[:200]
+            except Exception:
+                error_body = str(e)
+            result['status'] = 'failed'
+            result['message'] = f"HTTP {e.code}: {error_body or str(e)}"
+        except (urllib_error.URLError, KeyError, IndexError, json.JSONDecodeError) as e:
+            result['status'] = 'failed'
+            result['message'] = str(e)
+
+        results.append(result)
+
+    return results
+
 def build_daily_summary_payload(report_date):
     db = get_db()
     with db.cursor() as cursor:
@@ -1008,7 +1060,7 @@ def customer_detail(id):
             WHERE o.customer_id = %s
             ORDER BY o.created_at DESC
         """, (id,))
-        history = history = cursor.fetchall()
+        history = cursor.fetchall()
         
     return render_template('customer_detail.html', customer=customer, history=history)
 
@@ -1335,7 +1387,7 @@ def admin_users():
             FROM staff
             ORDER BY FIELD(role, 'admin', 'order_taker', 'kitchen_chef', 'kitchen', 'delivery'), name
         """)
-        staff_users = staff_users = cursor.fetchall()
+        staff_users = cursor.fetchall()
 
     return render_template('admin_users.html', staff_users=staff_users)
 
@@ -1378,6 +1430,18 @@ def admin_api_settings():
             'openrouter_model': app.config.get('OPENROUTER_MODEL', DEFAULT_ENV_VALUES['OPENROUTER_MODEL'])
         }
     )
+
+@app.route('/admin/api-key-test', methods=['GET', 'POST'])
+@role_required('admin')
+def admin_api_key_test():
+    test_results = []
+    tested = False
+
+    if request.method == 'POST':
+        test_results = run_api_key_chain_test()
+        tested = True
+
+    return render_template('admin_api_test.html', test_results=test_results, tested=tested)
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

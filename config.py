@@ -12,10 +12,10 @@ DEFAULT_ENV_VALUES = {
     'SECRET_KEY': 'dev_secret_key_123',
     'GROQ_API_KEY_1': '',
     'GROQ_API_KEY_2': '',
-    'GROQ_MODEL': 'llama3-8b-8192',
+    'GROQ_MODEL': 'llama-3.3-70b-versatile',
     'OPENROUTER_API_KEY_1': '',
     'OPENROUTER_API_KEY_2': '',
-    'OPENROUTER_MODEL': 'openrouter/free'
+    'OPENROUTER_MODEL': 'openai/gpt-4.1-mini'
 }
 
 _ENV_FILE_CACHE = None

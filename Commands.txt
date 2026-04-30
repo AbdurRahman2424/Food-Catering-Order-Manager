@@ -15,9 +15,50 @@ http://localhost/phpmyadmin/
 
 
 
-to make shutdown container 
+
+
+
+
+to make stop build from running
+
 docker-compose down
 
-
-to run the docker container
+to make new build
 docker-compose up --build -d
+
+
+
+one time set up 
+
+
+MYSQL_HOST=mysql
+MYSQL_USER=root
+MYSQL_PASSWORD=catering123
+MYSQL_DB=catering_db
+MYSQL_PORT=3306
+SECRET_KEY=supersecretkey123
+NGROK_AUTHTOKEN=paste_your_token_here
+
+Get ngrok token do once
+Sign up free at ngrok.com — no card needed
+1. Go to dashboard.ngrok.com/get-started/your-authtoken
+2. Click Copy next to your token
+3. Paste it in .env replacing paste_your_token_here
+
+Add token to ngrok do once
+Run this one time in terminal
+
+ngrok config add-authtoken YOUR_TOKEN_HERE
+
+
+Open terminal in project folder
+
+cmd
+
+docker-compose up -d
+
+docker-compose down
+
+Local app: http://localhost:5000
+ngrok dashboard: http://localhost:4040
+Public URL: shown in ngrok terminal
