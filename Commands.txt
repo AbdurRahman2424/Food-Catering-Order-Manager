@@ -12,3 +12,12 @@ Password: admin123
 
 
 http://localhost/phpmyadmin/
+
+
+
+to make shutdown container 
+docker-compose down
+
+
+to run the docker container
+docker-compose up --build -d
