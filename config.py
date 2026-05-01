@@ -15,7 +15,10 @@ DEFAULT_ENV_VALUES = {
     'GROQ_MODEL': 'llama-3.3-70b-versatile',
     'OPENROUTER_API_KEY_1': '',
     'OPENROUTER_API_KEY_2': '',
-    'OPENROUTER_MODEL': 'openai/gpt-4.1-mini'
+    'OPENROUTER_MODEL': 'openai/gpt-4.1-mini',
+    'EMAIL_NOTIFICATIONS_ENABLED': 'false',
+    'EMAIL_SENDER_NAME': 'FreshPlate Co.',
+    'BASE_URL': 'http://localhost:5000'
 }
 
 _ENV_FILE_CACHE = None
@@ -74,3 +77,7 @@ class Config:
     OPENROUTER_API_KEY_1 = get_env_value('OPENROUTER_API_KEY_1')
     OPENROUTER_API_KEY_2 = get_env_value('OPENROUTER_API_KEY_2')
     OPENROUTER_MODEL = get_env_value('OPENROUTER_MODEL')
+
+    EMAIL_NOTIFICATIONS_ENABLED = get_env_value('EMAIL_NOTIFICATIONS_ENABLED')
+    EMAIL_SENDER_NAME = get_env_value('EMAIL_SENDER_NAME')
+    BASE_URL = get_env_value('BASE_URL')

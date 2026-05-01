@@ -11,9 +11,14 @@ import json
 import os
 from urllib import request as urllib_request
 from urllib import error as urllib_error
+import email_service
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
 app.config.from_object(Config)
+app.config['PREFERRED_URL_SCHEME'] = 'https'
+# Trust proxy headers set by ngrok so Flask sees the correct host/scheme.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='gevent')
 
 ROLE_LABELS = {
@@ -905,7 +910,7 @@ def update_status(id):
     db = get_db()
     try:
         with db.cursor() as cursor:
-            cursor.execute("SELECT o.status, c.name as customer_name FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.id = %s", (id,))
+            cursor.execute("SELECT o.status, c.name as customer_name, c.email as customer_email FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.id = %s", (id,))
             order = cursor.fetchone()
             if not order:
                 flash('Order not found.', 'danger')
@@ -913,6 +918,7 @@ def update_status(id):
             
             current_status = order['status']
             cust_name = order['customer_name']
+            cust_email = order.get('customer_email', '')
             # Orders must move forward through this pipeline — no skipping ahead or going backwards.
             status_pipeline = ['received', 'logged', 'in_preparation', 'ready', 'delivered']
 
@@ -953,6 +959,38 @@ def update_status(id):
                 'customer_name': cust_name,
                 'message': f'Order #{id} for {cust_name} moved to {new_status.replace("_", " ")}'
             })
+            
+            # --- Send email notification (background, non-blocking) ---
+            # Only email on customer-facing status changes; skip internal steps.
+            EMAIL_TRIGGER_STATUSES = {'received', 'ready', 'delivered'}
+            notifications_on = (app.config.get('EMAIL_NOTIFICATIONS_ENABLED', 'false').lower()
+                                in ('true', '1', 'yes'))
+            if (notifications_on
+                    and new_status in EMAIL_TRIGGER_STATUSES
+                    and cust_email
+                    and email_service.is_email_configured()):
+                # Fetch order items + delivery date for the email body.
+                cursor.execute("""
+                    SELECT p.name AS product_name, oi.quantity, p.unit, oi.unit_price
+                    FROM order_items oi
+                    JOIN products p ON oi.product_id = p.id
+                    WHERE oi.order_id = %s
+                """, (id,))
+                items_for_email = cursor.fetchall()
+                cursor.execute("SELECT delivery_date FROM orders WHERE id = %s", (id,))
+                delivery_row = cursor.fetchone()
+                delivery_date = delivery_row['delivery_date'] if delivery_row else None
+
+                sender_name = app.config.get('EMAIL_SENDER_NAME', 'FreshPlate Co.')
+                email_service.send_email_in_background(
+                    to_email=cust_email,
+                    customer_name=cust_name,
+                    order_id=id,
+                    new_status=new_status,
+                    order_items=items_for_email,
+                    delivery_date=delivery_date,
+                    sender_name=sender_name
+                )
             
             flash(f'Order status updated to {new_status.replace("_", " ")}.', 'success')
     except Exception as e:
@@ -1466,6 +1504,110 @@ def admin_api_key_test():
 
     return render_template('admin_api_test.html', test_results=test_results, tested=tested)
 
+# --- Email Settings Routes ---
+
+@app.route('/admin/email-settings', methods=['GET', 'POST'])
+@role_required('admin')
+def admin_email_settings():
+    if request.method == 'POST':
+        enabled = 'true' if request.form.get('email_enabled') else 'false'
+        sender = request.form.get('sender_name', '').strip() or 'FreshPlate Co.'
+
+        updates = {
+            'EMAIL_NOTIFICATIONS_ENABLED': enabled,
+            'EMAIL_SENDER_NAME': sender
+        }
+        for key, value in updates.items():
+            app.config[key] = value
+
+        try:
+            update_env_file(updates)
+            flash('Email settings saved.', 'success')
+        except OSError:
+            flash('Settings applied for this session but .env could not be written.', 'warning')
+
+        return redirect(url_for('admin_email_settings'))
+
+    connected_email = email_service.get_connected_email() if email_service.is_email_configured() else None
+    return render_template(
+        'admin_email_settings.html',
+        credentials_exist=email_service.credentials_file_exists(),
+        connected_email=connected_email,
+        email_enabled=app.config.get('EMAIL_NOTIFICATIONS_ENABLED', 'false').lower() in ('true', '1', 'yes'),
+        sender_name=app.config.get('EMAIL_SENDER_NAME', 'FreshPlate Co.')
+    )
+
+
+@app.route('/admin/email-oauth/start')
+@role_required('admin')
+def admin_email_oauth_start():
+    if not email_service.credentials_file_exists():
+        flash('gmail_credentials.json not found. Please download it from Google Cloud Console.', 'danger')
+        return redirect(url_for('admin_email_settings'))
+
+    base_url = app.config.get('BASE_URL', 'http://localhost:5000').rstrip('/')
+    redirect_uri = f"{base_url}/admin/email-oauth/callback"
+    try:
+        auth_url, state, code_verifier = email_service.initiate_oauth_flow(redirect_uri)
+        session['oauth_state'] = state
+        if code_verifier:
+            session['oauth_code_verifier'] = code_verifier
+        session['oauth_redirect_uri'] = redirect_uri
+        return redirect(auth_url)
+    except Exception as e:
+        flash(f'Error starting OAuth flow: {str(e)}', 'danger')
+        return redirect(url_for('admin_email_settings'))
+
+
+@app.route('/admin/email-oauth/callback')
+@role_required('admin')
+def admin_email_oauth_callback():
+    base_url = app.config.get('BASE_URL', 'http://localhost:5000').rstrip('/')
+    redirect_uri = session.pop('oauth_redirect_uri', f"{base_url}/admin/email-oauth/callback")
+    state = session.pop('oauth_state', None)
+    code_verifier = session.pop('oauth_code_verifier', None)
+    
+    try:
+        # Build the full callback URL using BASE_URL + the query string from Google
+        callback_url = f"{base_url}/admin/email-oauth/callback?{request.query_string.decode()}"
+        email_service.handle_oauth_callback(
+            authorization_response=callback_url, 
+            redirect_uri=redirect_uri,
+            state=state,
+            code_verifier=code_verifier
+        )
+        flash('Gmail connected successfully!', 'success')
+    except Exception as e:
+        flash(f'OAuth error: {str(e)}', 'danger')
+
+    return redirect(url_for('admin_email_settings'))
+
+
+@app.route('/admin/email-disconnect', methods=['POST'])
+@role_required('admin')
+def admin_email_disconnect():
+    email_service.disconnect_email()
+    flash('Gmail account disconnected.', 'info')
+    return redirect(url_for('admin_email_settings'))
+
+
+@app.route('/admin/email-test', methods=['POST'])
+@role_required('admin')
+def admin_email_test():
+    test_addr = request.form.get('test_email', '').strip()
+    if not test_addr:
+        flash('Please enter an email address.', 'warning')
+        return redirect(url_for('admin_email_settings'))
+
+    try:
+        sender_name = app.config.get('EMAIL_SENDER_NAME', 'FreshPlate Co.')
+        email_service.send_test_email(test_addr, sender_name)
+        flash(f'Test email sent to {test_addr}!', 'success')
+    except Exception as e:
+        flash(f'Failed to send test email: {str(e)}', 'danger')
+
+    return redirect(url_for('admin_email_settings'))
+
+
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
-#test

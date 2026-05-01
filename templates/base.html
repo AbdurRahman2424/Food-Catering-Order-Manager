@@ -71,6 +71,7 @@
                             <li><a class="dropdown-item {% if request.endpoint == 'admin_users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Staff</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item {% if request.endpoint == 'admin_api_settings' %}active{% endif %}" href="{{ url_for('admin_api_settings') }}">API Settings</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'admin_email_settings' %}active{% endif %}" href="{{ url_for('admin_email_settings') }}"><i class="bi bi-envelope-at me-1"></i>Email Settings</a></li>
                         </ul>
                     </li>
                     
