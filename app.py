@@ -874,6 +874,27 @@ def update_receipt(id):
 
     return redirect(url_for('order_invoice', id=id))
 
+@app.route('/orders/<int:id>/delete', methods=['POST'])
+@role_required('admin')
+def delete_order(id):
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("SELECT id FROM orders WHERE id = %s", (id,))
+            if not cursor.fetchone():
+                flash('Order not found.', 'danger')
+                return redirect(url_for('orders'))
+            
+            cursor.execute("DELETE FROM orders WHERE id = %s", (id,))
+            db.commit()
+            
+            flash(f'Order #{id} has been completely deleted.', 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error deleting order: {str(e)}', 'danger')
+        
+    return redirect(url_for('orders'))
+
 @app.route('/orders/<int:id>/status', methods=['POST'])
 @role_required('admin', 'order_taker', 'kitchen', 'kitchen_chef', 'delivery')
 def update_status(id):
