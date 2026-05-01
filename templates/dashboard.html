@@ -127,7 +127,7 @@
             // Activity Feed
             const feed = document.getElementById('activity-feed');
             feed.innerHTML = '';
-            data.recent_activity.forEach(a => addActivityItem(a, false));
+            data.recent_activity.reverse().forEach(a => addActivityItem(a, false));
             
             // Chart
             updateChart(data.status_distribution);
