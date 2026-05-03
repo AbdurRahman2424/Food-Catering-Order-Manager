@@ -1139,15 +1139,13 @@ def delete_customer(id):
             order_count = cursor.fetchone()['count']
 
             if order_count > 0:
-                cursor.execute("DELETE FROM orders WHERE customer_id = %s", (id,))
+                flash(f"Cannot delete {customer['name']} because they already have {order_count} order(s).", 'warning')
+                return redirect(request.referrer or url_for('customers'))
 
             cursor.execute("DELETE FROM customers WHERE id = %s", (id,))
             db.commit()
 
-            if order_count > 0:
-                flash(f"Customer {customer['name']} and their {order_count} order(s) deleted successfully.", 'success')
-            else:
-                flash(f"Customer {customer['name']} deleted successfully.", 'success')
+            flash(f"Customer {customer['name']} deleted successfully.", 'success')
     except Exception as e:
         db.rollback()
         flash(f'Error deleting customer: {str(e)}', 'danger')
