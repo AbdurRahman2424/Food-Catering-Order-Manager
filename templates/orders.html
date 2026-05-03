@@ -137,6 +137,18 @@
                             {% elif order.status == 'delivered' %}
                                 <span class="badge bg-success py-2"><i class="bi bi-check-circle me-1"></i>Done</span>
                             {% endif %}
+                            
+                            {% if session.user_role == 'admin' %}
+                            <form id="form-delete-{{ order.id }}" action="{{ url_for('delete_order', id=order.id) }}" method="POST">
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                        data-bs-toggle="modal" data-bs-target="#confirmModal"
+                                        data-bs-message="Are you sure you want to completely delete Order #{{ order.id }}? This action cannot be undone."
+                                        data-bs-form="form-delete-{{ order.id }}"
+                                        title="Delete Order">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>

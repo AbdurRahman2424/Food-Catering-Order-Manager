@@ -71,7 +71,7 @@
         <!-- Item Selection -->
         <div class="col-12">
             <div class="card shadow-sm">
-                <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                <div class="card-header fw-bold py-3 d-flex justify-content-between align-items-center">
                     <span>3. Order Items</span>
                     <button type="button" class="btn btn-sm btn-success" id="add-item-btn">
                         <i class="bi bi-plus-lg me-1"></i>Add Product
@@ -105,7 +105,7 @@
                                         <input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" value="{{ item.quantity }}" required>
                                     </td>
                                     <td>
-                                        <input type="text" class="form-control bg-light unit-display" value="{{ item.unit or '' }}" readonly>
+                                        <input type="text" class="form-control unit-display" value="{{ item.unit or '' }}" readonly>
                                     </td>
                                     <td class="text-end">
                                         <button type="button" class="btn btn-outline-danger remove-item-btn"><i class="bi bi-trash"></i></button>
@@ -128,7 +128,7 @@
                                         <input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" value="1.00" required>
                                     </td>
                                     <td>
-                                        <input type="text" class="form-control bg-light unit-display" readonly>
+                                        <input type="text" class="form-control unit-display" readonly>
                                     </td>
                                     <td class="text-end">
                                         <button type="button" class="btn btn-outline-danger remove-item-btn"><i class="bi bi-trash"></i></button>
@@ -138,7 +138,7 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="card-footer bg-light py-3 text-end">
+                <div class="card-footer py-3 text-end">
                     <button type="submit" class="btn btn-primary btn-lg px-5">
                         <i class="bi bi-check-lg me-2"></i>Create Order
                     </button>
@@ -257,3 +257,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock %}
+block %}

@@ -112,7 +112,7 @@
     <!-- Customer Info -->
     <div class="col-md-6">
         <div class="card h-100 shadow-sm">
-            <div class="card-header bg-white fw-bold">Customer Information</div>
+            <div class="card-header fw-bold">Customer Information</div>
             <div class="card-body">
                 <h4 class="mb-1">{{ order.customer_name }}</h4>
                 <p class="text-muted mb-3"><i class="bi bi-telephone me-2"></i>{{ order.customer_phone }}</p>
@@ -126,7 +126,7 @@
     <!-- Order Meta -->
     <div class="col-md-6">
         <div class="card h-100 shadow-sm">
-            <div class="card-header bg-white fw-bold">Order Details</div>
+            <div class="card-header fw-bold">Order Details</div>
             <div class="card-body">
                 <div class="row mb-3">
                     <div class="col-6">
@@ -146,7 +146,7 @@
                 </div>
                 <div>
                     <label class="text-muted small d-block">Initial Notes</label>
-                    <div class="p-2 bg-light border rounded">{{ order.notes or 'No initial notes.' }}</div>
+                    <div class="p-2 border rounded">{{ order.notes or 'No initial notes.' }}</div>
                 </div>
                 <hr>
                 <div class="row">
@@ -215,7 +215,7 @@
 
 <!-- Internal Comments & Notes -->
 <div class="card shadow-sm mb-4">
-    <div class="card-header bg-white fw-bold py-3">
+    <div class="card-header fw-bold py-3">
         <i class="bi bi-chat-left-text me-2"></i>Internal Comments & Staff Notes
     </div>
     <div class="list-group list-group-flush" id="comment-list">
@@ -233,7 +233,7 @@
         </div>
         {% endfor %}
     </div>
-    <div class="card-footer bg-white py-3">
+    <div class="card-footer py-3">
         <form action="{{ url_for('add_comment', id=order.id) }}" method="POST">
             <div class="input-group">
                 <input type="text" name="comment" class="form-control" placeholder="Add a note or comment..." required>
@@ -245,3 +245,4 @@
     </div>
 </div>
 {% endblock %}
+block %}

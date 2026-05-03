@@ -1,41 +1,151 @@
-/* Minimal custom overrides for FreshPlate Co. */
+/* Professional Industrial Theme for FreshPlate Co. */
+:root {
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-400: #94a3b8;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --slate-900: #0f172a;
+    --slate-950: #020617;
+    
+/* Theme variables - Light (default) */
+    --bg-body: var(--slate-50);
+    --text-body: var(--slate-900);
+    --bg-card: #ffffff;
+    --bg-card-header: #ffffff;
+    --border-card: var(--slate-200);
+    --text-muted: var(--slate-500);
+    --bg-list-group: #ffffff;
+    --text-list-group: var(--slate-900);
+}
+
+[data-bs-theme="dark"] {
+    --bg-body: var(--slate-950);
+    --text-body: var(--slate-100);
+    --bg-card: var(--slate-900);
+    --bg-card-header: var(--slate-800);
+    --border-card: var(--slate-800);
+    --text-muted: var(--slate-400);
+    --bg-list-group: var(--slate-900);
+    --text-list-group: var(--slate-100);
+}
+
 body {
-    background-color: #f8f9fa;
+    background-color: var(--bg-body);
     min-height: 100vh;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    color: var(--text-body);
+}
+
+.bg-slate {
+    background-color: var(--slate-900) !important;
+}
+
+.navbar {
+    padding: 1rem 0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 .navbar-brand {
-    font-weight: 700;
-    letter-spacing: -0.5px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    font-size: 1.5rem;
+}
+
+.nav-link {
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.nav-link:hover {
+    color: var(--slate-300) !important;
 }
 
 .card {
-    border: none;
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-card);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     margin-bottom: 1.5rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    color: var(--text-body) !important;
+}
+
+.card-header {
+    background-color: var(--bg-card-header) !important;
+    border-bottom: 1px solid var(--border-card);
+    font-weight: 700;
+    color: var(--text-body) !important;
+    padding: 1rem 1.25rem;
+}
+
+.card-title {
+    color: var(--text-body) !important;
+}
+
+.list-group-item {
+    background-color: var(--bg-list-group) !important;
+    color: var(--text-list-group) !important;
+    border-color: var(--border-card) !important;
+}
+
+.list-group-item .text-muted {
+    color: var(--text-muted) !important;
+}
+
+.btn-primary {
+    background-color: var(--slate-800);
+    border-color: var(--slate-800);
+}
+
+.btn-primary:hover {
+    background-color: var(--slate-900);
+    border-color: var(--slate-950);
+}
+
+.table {
+    color: var(--text-body) !important;
+}
+
+.table-light {
+    --bs-table-bg: var(--slate-100);
+    --bs-table-color: var(--slate-900);
+}
+
+[data-bs-theme="dark"] .table-light {
+    --bs-table-bg: var(--slate-800) !important;
+    --bs-table-color: var(--slate-100) !important;
+}
+
+[data-bs-theme="dark"] .table-secondary {
+    background-color: var(--slate-800) !important;
+    color: var(--slate-100) !important;
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+.form-control {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-card) !important;
+    color: var(--text-body) !important;
+}
+
+.form-control:focus {
+    background-color: var(--bg-card) !important;
+    color: var(--text-body) !important;
 }
 
 .table-danger {
-    background-color: #f8d7da !important;
+    background-color: #fee2e2 !important;
 }
 
-/* Print optimizations */
-@media print {
-    .d-print-none {
-        display: none !important;
-    }
-    body {
-        background-color: white;
-    }
-    .card {
-        box-shadow: none;
-        border: 1px solid #dee2e6;
-    }
+[data-bs-theme="dark"] .table-danger {
+    background-color: #7f1d1d !important;
+    color: #fca5a5 !important;
 }
-
-/* Custom status colors if needed beyond Bootstrap defaults */
-.status-received { background-color: #6c757d; color: white; }
-.status-logged { background-color: #0d6efd; color: white; }
-.status-in_preparation { background-color: #ffc107; color: black; }
-.status-ready { background-color: #17a2b8; color: white; }
-.status-delivered { background-color: #198754; color: white; }

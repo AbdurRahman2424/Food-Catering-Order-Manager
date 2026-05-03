@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -21,7 +22,7 @@
     </div>
 
     <!-- FreshPlate Co. Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 d-print-none">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-slate mb-4 d-print-none">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('index') }}">
                 <i class="bi bi-egg-fried me-2"></i>FreshPlate Co.
@@ -57,35 +58,46 @@
                         </a>
                     </li>
                     {% endif %}
-                    {% if user_role in ['admin', 'order_taker'] %}
+                    
+                    {% if user_role == 'admin' %}
+                    <!-- Management Dropdown -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="mgmtDropdown" role="button" data-bs-toggle="dropdown">
+                            Management
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item {% if request.endpoint == 'customers' %}active{% endif %}" href="{{ url_for('customers') }}">Customers</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'products' %}active{% endif %}" href="{{ url_for('products') }}">Products</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'admin_users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Staff</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'admin_api_settings' %}active{% endif %}" href="{{ url_for('admin_api_settings') }}">API Settings</a></li>
+                        </ul>
+                    </li>
+                    
+                    <!-- Reports Dropdown -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="reportsDropdown" role="button" data-bs-toggle="dropdown">
+                            Reports
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item {% if request.endpoint == 'summary' %}active{% endif %}" href="{{ url_for('summary') }}">Daily Summary</a></li>
+                            <li><a class="dropdown-item {% if request.endpoint == 'sales_reports' %}active{% endif %}" href="{{ url_for('sales_reports') }}">Sales Reports</a></li>
+                        </ul>
+                    </li>
+                    {% elif user_role == 'order_taker' %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'customers' %}active{% endif %}" href="{{ url_for('customers') }}">Customers</a>
-                    </li>
-                    {% endif %}
-                    {% if user_role == 'admin' %}
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'summary' %}active{% endif %}" href="{{ url_for('summary') }}">Summary</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'products' %}active{% endif %}" href="{{ url_for('products') }}">Products</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint in ['summary', 'sales_reports'] %}active{% endif %}" href="{{ url_for('sales_reports') }}">Sales Reports</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'admin_api_settings' %}active{% endif %}" href="{{ url_for('admin_api_settings') }}">API Settings</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'admin_api_key_test' %}active{% endif %}" href="{{ url_for('admin_api_key_test') }}">API Key Test</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'admin_users' %}active{% endif %}" href="{{ url_for('admin_users') }}">Staff</a>
                     </li>
                     {% endif %}
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav">
                     {% if session.user_id %}
+                    <li class="nav-item d-flex align-items-center me-2">
+                        <button class="btn btn-link nav-link text-white p-2" id="theme-toggle" title="Toggle Light/Dark Mode">
+                            <i class="bi bi-moon-stars" id="theme-toggle-icon"></i>
+                        </button>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle text-white" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-person-circle me-1"></i>{{ session.user_name }}
@@ -130,6 +142,35 @@
         </div>
     </div>
 
+    <script>
+        // Theme Toggle Logic
+        (function() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        })();
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const themeToggle = document.getElementById('theme-toggle');
+            const themeIcon = document.getElementById('theme-toggle-icon');
+            
+            if (themeToggle) {
+                const updateIcon = (theme) => {
+                    themeIcon.className = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-stars';
+                };
+                
+                updateIcon(document.documentElement.getAttribute('data-bs-theme'));
+
+                themeToggle.addEventListener('click', () => {
+                    const currentTheme = document.documentElement.getAttribute('data-bs-theme');
+                    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                    
+                    document.documentElement.setAttribute('data-bs-theme', newTheme);
+                    localStorage.setItem('theme', newTheme);
+                    updateIcon(newTheme);
+                });
+            }
+        });
+    </script>
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>

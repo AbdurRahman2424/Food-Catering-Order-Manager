@@ -49,7 +49,7 @@
 <div class="card">
     <div class="table-responsive">
         <table class="table table-striped table-hover mb-0">
-            <thead class="table-light">
+            <thead>
                 <tr>
                     <th>Name</th>
                     <th>Phone</th>
@@ -81,7 +81,7 @@
                                         class="btn btn-sm btn-outline-danger"
                                         data-bs-toggle="modal"
                                         data-bs-target="#confirmModal"
-                                        data-bs-message="Delete customer {{ customer.name }}?"
+                                        data-bs-message="Are you sure you want to completely delete customer {{ customer.name }}? This will also permanently delete all their associated orders. This action cannot be undone."
                                         data-bs-form="delete-customer-{{ customer.id }}">
                                     <i class="bi bi-trash me-1"></i>Delete
                                 </button>
