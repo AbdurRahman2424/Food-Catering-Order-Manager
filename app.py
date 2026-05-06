@@ -1450,6 +1450,56 @@ def admin_users():
 
     return render_template('admin_users.html', staff_users=staff_users)
 
+@app.route('/admin/users/<int:id>/role', methods=['POST'])
+@role_required('admin')
+def update_staff_role(id):
+    new_role = request.form.get('role')
+    if new_role not in ROLE_LABELS:
+        flash('Invalid role selected.', 'danger')
+        return redirect(url_for('admin_users'))
+    
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            cursor.execute("UPDATE staff SET role = %s WHERE id = %s", (new_role, id))
+            db.commit()
+            flash(f'Role updated to {ROLE_LABELS[new_role]} successfully.', 'success')
+            if id == session.get('user_id'):
+                session['user_role'] = new_role
+    except Exception as e:
+        db.rollback()
+        flash(f'Error updating role: {str(e)}', 'danger')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/<int:id>/delete', methods=['POST'])
+@role_required('admin')
+def delete_staff(id):
+    if id == session.get('user_id'):
+        flash('You cannot delete your own account.', 'danger')
+        return redirect(url_for('admin_users'))
+    
+    db = get_db()
+    try:
+        with db.cursor() as cursor:
+            # Check dependencies
+            cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE staff_id = %s", (id,))
+            if cursor.fetchone()['count'] > 0:
+                flash('Cannot delete staff with assigned orders. Reassign orders or keep the account for historical records.', 'warning')
+                return redirect(url_for('admin_users'))
+            
+            cursor.execute("SELECT COUNT(*) AS count FROM order_comments WHERE staff_id = %s", (id,))
+            if cursor.fetchone()['count'] > 0:
+                flash('Cannot delete staff with existing order comments.', 'warning')
+                return redirect(url_for('admin_users'))
+
+            cursor.execute("DELETE FROM staff WHERE id = %s", (id,))
+            db.commit()
+            flash('Staff member deleted successfully.', 'success')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error deleting staff: {str(e)}', 'danger')
+    return redirect(url_for('admin_users'))
+
 @app.route('/admin/api-settings', methods=['GET', 'POST'])
 @role_required('admin')
 def admin_api_settings():

@@ -74,6 +74,7 @@
                             <th>Name</th>
                             <th>Email</th>
                             <th>Role</th>
+                            <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -82,10 +83,32 @@
                             <td class="fw-bold">{{ user.name }}</td>
                             <td>{{ user.email }}</td>
                             <td><span class="badge bg-secondary">{{ role_labels.get(user.role, user.role) }}</span></td>
+                            <td class="text-end">
+                                <div class="d-flex gap-2 justify-content-end align-items-center">
+                                    <!-- Role Change Form -->
+                                    <form action="{{ url_for('update_staff_role', id=user.id) }}" method="POST" class="d-inline-block">
+                                        <select name="role" class="form-select form-select-sm" onchange="this.form.submit()" style="width: auto;">
+                                            <option value="order_taker" {% if user.role == 'order_taker' %}selected{% endif %}>Order Taker</option>
+                                            <option value="kitchen_chef" {% if user.role == 'kitchen_chef' or user.role == 'kitchen' %}selected{% endif %}>Kitchen Chef</option>
+                                            <option value="delivery" {% if user.role == 'delivery' %}selected{% endif %}>Delivery</option>
+                                            <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                                        </select>
+                                    </form>
+
+                                    <!-- Delete Form -->
+                                    {% if user.id != session.user_id %}
+                                    <form action="{{ url_for('delete_staff', id=user.id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('Are you sure you want to delete {{ user.name }}? This cannot be undone and will fail if they have existing orders or comments.')">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Staff">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="3" class="text-center py-4 text-muted">No staff users found.</td>
+                            <td colspan="4" class="text-center py-4 text-muted">No staff users found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
