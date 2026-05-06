@@ -18,6 +18,21 @@ services:
       BASE_URL: ${BASE_URL}
       EMAIL_NOTIFICATIONS_ENABLED: ${EMAIL_NOTIFICATIONS_ENABLED}
       EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME}
+    ports:
+      - "5000:5000"
+    restart: always
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    depends_on:
+      - mysql
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "8080:80"
     restart: always
 
   mysql:
